@@ -23,7 +23,7 @@ for vehicle in "$@"; do
   printf '%s' "$vehicle" > "$DIR/test_target.txt"
   send "menu:FlightWorld/Flight/Test/Arm Scripted Drive" 60 >/dev/null
   send play 60 >/dev/null
-  for _ in $(seq 1 50); do grep -q DONE "$log" 2>/dev/null && break; sleep 3; done
+  for _ in $(seq 1 90); do grep -q DONE "$log" 2>/dev/null && break; sleep 3; done   # (a busy editor runs the test slower than the clock)
   echo "== $vehicle: $(grep -a -E 'SUMMARY' "$log" | cut -c1-600)"
   grep -q SUMMARY "$log" 2>/dev/null || { echo "   no summary; last lines:"; tail -4 "$log" | cut -c1-200; send stop 60 >/dev/null; }
   sleep 6

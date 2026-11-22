@@ -175,7 +175,6 @@ namespace FlightWorld.FlightGraphs
                     Wake(g);
                     g.SetGraphVar("Driving", true);
                     g.SetGraphVar("ResetTimer", 0f);
-                    g.SetGraphVar("SeatTimer", 0.7f);
                     g.Do(Sync, "_TakeOwnership", Type.EmptyTypes, null);
                     BlockSticks(g, true);
                     Park(g);
@@ -407,24 +406,8 @@ namespace FlightWorld.FlightGraphs
             {
                 var dt = g.Keep(g.Get(typeof(Time), "deltaTime"));
 
-                // A moment after sitting, the seat is slid so the driver's eyes are on the seat's design eye point.
-                g.If(g.Greater(g.F("SeatTimer"), 0f), () =>
-                {
-                    var left = g.SetGraphVar("SeatTimer", g.F("SeatTimer") - dt);
-                    g.If(g.And(g.Less(left, 0.0001f), g.Not(g.B("TestPilot"))), () =>
-                        g.If(g.Less(g.F("Speed"), 3f), () =>
-                        {
-                            g.SetGraphVar("SeatTimer", 0f);
-                            var seatTransform = g.Keep(PilotSeatTransform(g));
-                            var eyes = g.PlatformValue("GetLocalUserState", "Position", V3T);
-                            var shift = g.Keep(g.Call(TF, "InverseTransformDirection", Vec, null,
-                                g.Get(TF, "position", g.ObjVar("EyePoint", TF)) - eyes));
-                            var local = g.Keep(g.Get(TF, "localPosition", seatTransform));
-                            var home = g.Keep(g.GraphVar("SeatHome", V3T));
-                            Val Fit(Func<Val, Val> axis) => g.Clamp(axis(local) + axis(shift), axis(home) - 0.6f, axis(home) + 0.6f);
-                            g.Set(TF, "localPosition", seatTransform, g.V3(Fit(g.X), Fit(g.Y), Fit(g.Z)));
-                        }, () => g.SetGraphVar("SeatTimer", 0.5f)));
-                });
+                // (The seat is not slid to fit the driver any more: other clients draw a rider against their own copy of
+                // the seat, so a seat moved on the driver's client alone showed them off it. FleetParts.SeatFor.)
 
                 var velocity = g.Keep(g.Get(RB, "linearVelocity"));
                 var speed = g.Keep(g.Magnitude(velocity));
