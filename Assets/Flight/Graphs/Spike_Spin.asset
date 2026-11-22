@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95e66c6366d904e98bc83428217d4fd7, type: 3}
+  m_Name: Spike_Spin
+  m_EditorClassIdentifier: Unity.VisualScripting.Flow::Unity.VisualScripting.ScriptGraphAsset
+  _data:
+    _json: '{"graph":{"variables":{"Kind":"Flow","collection":{"$content":[],"$version":"A"},"$version":"A"},"controlInputDefinitions":[],"controlOutputDefinitions":[],"valueInputDefinitions":[],"valueOutputDefinitions":[],"title":null,"summary":null,"pan":{"x":0.0,"y":0.0},"zoom":1.0,"elements":[{"coroutine":false,"defaultValues":{},"position":{"x":-300.0,"y":0.0},"guid":"16278d19-d705-4a90-ad8a-f2511b0da51b","$version":"A","$type":"Unity.VisualScripting.FixedUpdate","$id":"9"},{"chainable":false,"parameterNames":["torque","mode"],"member":{"name":"AddRelativeTorque","parameterTypes":["UnityEngine.Vector3","UnityEngine.ForceMode"],"targetType":"UnityEngine.Rigidbody","targetTypeName":"UnityEngine.Rigidbody","$version":"A"},"defaultValues":{"target":null,"%torque":{"x":0.0,"y":0.0,"z":0.0,"$type":"UnityEngine.Vector3"},"%mode":{"$content":"Acceleration","$type":"UnityEngine.ForceMode"}},"position":{"x":60.0,"y":0.0},"guid":"74f7b981-bdc8-4429-9c04-e91186a439c0","$version":"A","$type":"Unity.VisualScripting.InvokeMember","$id":"11"},{"type":"UnityEngine.Vector3","value":{"x":0.0,"y":2.5,"z":0.0,"$type":"UnityEngine.Vector3"},"defaultValues":{},"position":{"x":-300.0,"y":160.0},"guid":"dfa4b42b-f00f-4020-a2df-e2ae0a925766","$version":"A","$type":"Unity.VisualScripting.Literal","$id":"15"},{"sourceUnit":{"$ref":"9"},"sourceKey":"trigger","destinationUnit":{"$ref":"11"},"destinationKey":"enter","guid":"de407aba-cf70-4d01-8d2b-ab8571178ea0","$type":"Unity.VisualScripting.ControlConnection"},{"sourceUnit":{"$ref":"15"},"sourceKey":"output","destinationUnit":{"$ref":"11"},"destinationKey":"%torque","guid":"165bb87c-d39d-4c55-b8f9-639f968f5878","$type":"Unity.VisualScripting.ValueConnection"}],"$version":"A"}}'
+    _objectReferences: []
