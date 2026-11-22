@@ -31,6 +31,7 @@ Material:
     m_Floats:
     - _Cull: 2
     - _Cutoff: 0
+    - _Glance: 1
     - _Unlit: 0
     m_Colors:
     - _Color: {r: 0.20860264, g: 0.28608012, b: 0.3423829, a: 0.3}

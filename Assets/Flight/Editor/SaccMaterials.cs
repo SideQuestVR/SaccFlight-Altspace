@@ -110,8 +110,15 @@ namespace FlightWorld.FlightGraphs
             }
             else if (target.name == "FlightWorld/AircraftGlass")
             {
-                colour.a = Mathf.Clamp(colour.a, 0.12f, 0.85f);
+                // A see-through surface with a picture that is not a window (a propeller's blur disc): drawn as the
+                // original Fade material is, its opacity the tint's times the texture's and no sky in it. The tint's
+                // opacity is often animated (the Wasp's blur disc is invisible at rest and fades in with the
+                // propeller's speed), so it is left as it is. Windows keep a floor and a ceiling on their opacity.
+                bool fade = texture != null && !source.name.ToLowerInvariant().Contains("glass");
+                if (!fade) colour.a = Mathf.Clamp(colour.a, 0.12f, 0.85f);
                 result.SetColor("_Color", colour);
+                result.SetFloat("_Glance", fade ? 0f : 1f);
+                result.SetFloat("_Cull", fade ? SourceCull(source) : 2f);
                 result.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             }
             else
@@ -136,12 +143,21 @@ namespace FlightWorld.FlightGraphs
                 result.SetFloat("_Unlit", selfLit || glowOnly ? 1f : 0f);
                 result.SetColor("_EmissionColor", emission);
                 result.SetFloat("_Cutoff", mode == 1f && source.HasProperty("_Cutoff") ? source.GetFloat("_Cutoff") : 0f);
-                result.SetFloat("_Cull", source.HasProperty("_Cull") ? source.GetFloat("_Cull") : 2f);
+                result.SetFloat("_Cull", SourceCull(source));
                 result.renderQueue = -1;
             }
             EditorUtility.SetDirty(result);
             return result;
         }
+
+        /// <summary>
+        /// Which faces the original draws: Sacc's PBRVCol shaders call it CullMode (the balloon's envelope is 0, both
+        /// sides, so it can be seen from inside the basket), URP's _Cull; back faces only if neither says.
+        /// </summary>
+        static float SourceCull(Material source) =>
+            source.HasProperty("_Cull") ? source.GetFloat("_Cull")
+            : source.HasProperty("CullMode") ? source.GetFloat("CullMode")
+            : source.HasProperty("_CullMode") ? source.GetFloat("_CullMode") : 2f;
 
         static Texture Texture(Material material, string property) =>
             material.HasProperty(property) ? material.GetTexture(property) : null;

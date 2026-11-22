@@ -54,10 +54,17 @@ namespace FlightWorld.FlightGraphs
         {
             /// <summary>Tuned for Sacc before 1.7 with AutoAdjustValuesToMass off: its strengths are forces for its own mass.</summary>
             public bool absoluteForces;
-            /// <summary>How many of its passenger seats become real seats, in the prefab's order (every seat is looked up by
-            /// every client four times a second, so 150 cabin seats are not free).</summary>
+            /// <summary>How many of its passenger seats become real seats, in the prefab's order. (A seat costs nothing per
+            /// frame; the graph looks at every passenger seat's eye point twice a second, only while the local player is
+            /// at the vehicle and it is nearly still.)</summary>
             public int passengerSeats = int.MaxValue;
             public string[] noSeatsUnder = new string[0];
+            /// <summary>Passenger seats the original does not have, for a vehicle that would otherwise carry nobody but its
+            /// pilot: where the rider sits, in metres to the right of, above and ahead of the pilot seat.</summary>
+            public Vector3[] extraSeats = new Vector3[0];
+            /// <summary>Always drawn at full detail: no coarser mesh levels at a distance, and the graph's distance bias
+            /// leaves it alone (the balloon: a big shape seen from far away, and only about 13,000 triangles).</summary>
+            public bool fullDetail;
             /// <summary>Where everybody gets out: metres to the right of and ahead of the vehicle's centre of mass, on the ground
             /// (its seats are metres above it).</summary>
             public Vector2? exitAt;
@@ -88,13 +95,17 @@ namespace FlightWorld.FlightGraphs
         {
             ["A320"] = new Special
             {
-                absoluteForces = true, passengerSeats = 33, noSeatsUnder = new[] { "VerySecuritySetas" },
+                // every cabin seat; not the joke seats on the engines and in the hold
+                absoluteForces = true, noSeatsUnder = new[] { "VerySecuritySetas" },
                 exitAt = new Vector2(-5.5f, 11f), seatReach = 9f, passengerClick = new Vector3(0.42f, 1.0f, 0.7f),
                 nearOnly = new[] { "INTERIOR", "interior_empty", "InVehicleStaticStuff" }, nearWithin = 45f, quiet = true,
                 gapBefore = 30f, signTo = ("AIRLINER", -5.5f, 10f),       // beside the nose, under the captain's window
                 switchedOff = new[] { "Avionics/EFB", "DU_static/MCDU", "DU_static/DCDU", "ECAM/ECAM-SD", "DisplayUnits/EFIS_R" },
                 hollow = new[] { "机身碰撞体" },      // ("fuselage collision body")
             },
+            // The drone has one chair; a passenger rides on the cargo pack strapped on behind it.
+            ["SD-1"] = new Special { extraSeats = new[] { new Vector3(0f, 0.25f, -0.9f) } },
+            ["Balloon"] = new Special { fullDetail = true },
         };
 
         /// <summary>Row number for a vehicle that is moored on the nearest open water instead of parked on the apron.</summary>
@@ -255,6 +266,19 @@ namespace FlightWorld.FlightGraphs
             var seats = root.GetComponentsInChildren<SaccVehicleSeat>(true)
                 .Select(s => (go: s.gameObject, pilot: s.IsPilotSeat, eye: s.TargetEyePosition, enable: s.EnableInSeat ?? new GameObject[0])).ToList();
             if (!seats.Any(s => s.pilot)) throw new Exception($"{prefabName}: no pilot seat");
+            var extraSeatsFor = special.extraSeats;
+            for (int i = 0; i < extraSeatsFor.Length; i++)
+            {
+                // (made where the seat code below expects an authored seat: it puts the rider's eyes 0.75 m above
+                // this point and then the seat 0.45 m under and 0.3 m behind the eyes)
+                var pilotGo = seats.First(s => s.pilot).go.transform;
+                var extra = new GameObject($"PassengerSeat (extra {i + 1})");
+                extra.transform.SetParent(pilotGo.parent, false);
+                var at = extraSeatsFor[i];
+                extra.transform.position = pilotGo.position + root.transform.right * at.x + root.transform.up * (at.y - 0.3f) + root.transform.forward * (at.z + 0.3f);
+                extra.transform.rotation = root.transform.rotation;
+                seats.Add((extra, false, null, new GameObject[0]));
+            }
             var sound = root.GetComponentInChildren<SAV_SoundController>(true);
             var thrust = sound != null && sound.Thrust != null ? sound.Thrust.FirstOrDefault(a => a) : null;
             var wind = sound != null ? sound.PlaneWind : null;
@@ -870,6 +894,11 @@ namespace FlightWorld.FlightGraphs
             var lodRenderers = new AotList();
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
+                if (special.fullDetail)
+                {
+                    renderer.forceMeshLod = 0;          // always the full mesh, at any distance
+                    continue;
+                }
                 var drawn = renderer is SkinnedMeshRenderer skinnedMesh ? skinnedMesh.sharedMesh
                     : renderer.TryGetComponent<MeshFilter>(out var meshFilter) ? meshFilter.sharedMesh : null;
                 if (drawn != null && drawn.lodCount > 1 && drawn.GetIndexCount(0) >= 900) lodRenderers.Add(renderer);
