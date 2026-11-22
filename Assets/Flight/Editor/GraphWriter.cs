@@ -27,6 +27,7 @@ namespace FlightWorld.FlightGraphs
 
         public static Val operator +(Val a, Val b) => a.IsVector ? a.g.Unit<Vector3Sum>("sum", typeof(Vector3), ("0", a), ("1", b)) : a.g.Unit<ScalarSum>("sum", typeof(float), ("0", a), ("1", b));
         public static Val operator +(Val a, float b) => a.g.Unit<ScalarSum>("sum", typeof(float), ("0", a), ("1", b));
+        public static Val operator +(float a, Val b) => b + a;
         public static Val operator -(Val a, Val b) => a.IsVector ? a.g.Unit<Vector3Subtract>("difference", typeof(Vector3), ("minuend", a), ("subtrahend", b)) : a.g.Unit<ScalarSubtract>("difference", typeof(float), ("minuend", a), ("subtrahend", b));
         public static Val operator -(Val a, float b) => a.g.Unit<ScalarSubtract>("difference", typeof(float), ("minuend", a), ("subtrahend", b));
         public static Val operator -(float a, Val b) => b.g.Unit<ScalarSubtract>("difference", typeof(float), ("minuend", a), ("subtrahend", b));

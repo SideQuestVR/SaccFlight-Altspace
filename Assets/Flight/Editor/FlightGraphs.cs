@@ -33,6 +33,7 @@ namespace FlightWorld.FlightGraphs
                 BuildCore().Save(CorePath, report);
                 BuildTeleportSign().Save(TeleportPath, report);
                 BuildFleetWatch().Save(WatchPath, report);
+                BuildWeaponsWorld().Save(WeaponsPath, report);
                 AssetDatabase.SaveAssets();
                 report.AppendLine("OK");
             }
@@ -100,6 +101,7 @@ namespace FlightWorld.FlightGraphs
             g.Declare("FlownTimer", 0f);        // counts down from the last sign that another client is flying this vehicle
             g.Declare("IdleTimer", 6f);         // counts down to resting them
             g.Declare("NearSeat", false);       // scratch: the local player's head is at one of the passenger seats
+
             g.Declare("MovedSpeed", 0f);        // how fast the vehicle is moving, measured on every client
             g.Declare("GearUp", false);         // landing gear retracted (DFUNC_Gear)
             g.Declare("FlapsOn", false);        // flaps out (DFUNC_Flaps): more lift, more drag
@@ -128,6 +130,7 @@ namespace FlightWorld.FlightGraphs
             g.Declare("SpawnPosition", Vector3.zero);
             g.Declare("SpawnRotation", Quaternion.identity);
             DeclareAdvanced(g);
+            DeclareFunctions(g);
 
             // ---- remember the parking spot ------------------------------------------------------------
             g.On(new Start(), _ =>
@@ -151,7 +154,10 @@ namespace FlightWorld.FlightGraphs
                 g.SetGraphVar("FlapPos", g.Select(g.ObjVar("FlapsDefaultOn", typeof(bool)), 1f, 0f));
                 NoSpeedLimit(g);
                 ParkingBrake(g);
+                FunctionsHome(g);
             });
+            // the dial functions' messages and the damage this vehicle takes (FlightGraphsFunctions.cs)
+            FunctionMessages(g);
 
             // ---- gear and flaps: a key or a thumbstick click toggles them, for the pilot only -------------------
             // Everyone else is told with a one-shot, so they see the gear travel and the flaps move too.
@@ -287,12 +293,15 @@ namespace FlightWorld.FlightGraphs
                     g.If(g.ObjVar("IsBoat", typeof(bool)), () => g.SetObjVar("Busy", true), () => Fly(g, true));
                     g.SetGraphVar("Throttle", 0f);
                     g.SetGraphVar("ResetTimer", 0f);
-                    g.SetGraphVar("SeatTimer", 0.7f);
                     NoSpeedLimit(g);
                     g.Do(Sync, "_TakeOwnership", Type.EmptyTypes, null);
                     BlockSticks(g, true);
                     Wake(g);
                     Cockpit(g, true);
+                    g.SetGraphVar("EngineOff", false);
+                    g.SetGraphVar("EngineStarting", 0f);
+                    Say(g, "engine", "1");
+                    g.If(g.Or(g.B("CanopyOpen"), g.B("CanopyBroken")), () => { }, () => Say(g, "canopy", "0"));
                     g.SetGraphVar("LastVel", g.Get(RB, "linearVelocity"));
                     g.SetGraphVar("VertGs", 1f);
                     g.SetGraphVar("GsAll", Vector3.up);
@@ -402,6 +411,7 @@ namespace FlightWorld.FlightGraphs
                     // (Fourteen idle animators with twenty layers each, and their particle systems, cost a
                     // Quest several milliseconds a frame for nothing.)
                     var crewed = g.Keep(g.Or(g.B("Piloting"), heardRunning));
+                    g.If(g.Not(g.Same(crewed, g.ObjVar("Crewed", typeof(bool)))), () => g.SetObjVar("Crewed", crewed));   // (what missiles can lock on to)
                     g.If(g.Or(g.Or(crewed, g.B("Dead")), g.Or(g.B("Riding"), g.Greater(airspeed, 1f))),
                         () => Wake(g),
                         () => g.If(g.And(g.B("Awake"), g.Less(g.SetGraphVar("IdleTimer", g.F("IdleTimer") - 0.1f), 0f)), () => Rest(g)));
@@ -438,12 +448,12 @@ namespace FlightWorld.FlightGraphs
                         AnimFloat(g, "mach10", airspeed * 0.000291545f);
                         AnimFloat(g, "health", g.Clamp01(g.F("Health") / g.P("FullHealth")));
                         AnimBool(g, "occupied", crewed);
-                        AnimBool(g, "EngineOn", crewed);          // rotors and propellers turn while there is a pilot
+                        AnimBool(g, "EngineOn", g.And(crewed, g.Not(g.B("EngineOff"))));   // rotors and propellers turn while there is a pilot with the engine on
                         // The canopy (on one aircraft, a cabin that lowers to the ground) stands open while the
                         // vehicle is parked and empty, so people can see where to get in, and shuts when a pilot
                         // sits down. Every client works this out the same way from the pilot's seat.
-                        AnimBool(g, "canopyopen", g.And(g.ObjVar("HasCanopy", typeof(bool)),
-                            g.And(g.Not(crewed), g.And(g.Not(g.B("Dead")), g.Less(airspeed, 1f)))));
+                        AnimBool(g, "canopyopen", g.And(g.ObjVar("HasCanopy", typeof(bool)), g.Select(crewed, g.Or(g.B("CanopyOpen"), g.B("CanopyBroken")),
+                            g.And(g.Not(g.B("Dead")), g.Less(airspeed, 1f)), typeof(bool))));
                         // Gear legs, flaps, slats and thrust levers that travel by a position rather than a switch
                         // (EsnyaSFAddons' advanced gear and flaps, as an airliner built on them has). Every client
                         // runs them from the same gear and flap switches, so everyone sees the legs swing.
@@ -660,46 +670,19 @@ namespace FlightWorld.FlightGraphs
             void PilotFrame()
             {
                 AdvancedFrame(g);
-                // Players sit at different heights (standing or seated in real life, tall or short), the
-                // platform puts a seated head some way ahead of the seat's origin, and a cockpit only works
-                // from one eye position. A moment after sitting, once the player has settled, the seat is
-                // slid so their eyes are on the cockpit's design eye point. Measured in the app: players
-                // with 1.25 m and 1.75 m eye heights end up with the same view.
-                g.If(g.Greater(g.F("SeatTimer"), 0f), () =>
-                {
-                    var left = g.SetGraphVar("SeatTimer", g.F("SeatTimer") - g.Get(typeof(Time), "deltaTime"));
-                    g.If(g.And(g.Less(left, 0.0001f), g.Not(g.B("TestPilot"))), () =>
-                        // (the head position a graph reads trails a moving aircraft, so wait until it is slow)
-                        g.If(g.Less(g.F("Speed"), 3f), () =>
-                        {
-                            g.SetGraphVar("SeatTimer", 0f);
-                            // (Worked out in world space: some seats hang under a cabin that moves, on bones with
-                            // their own axes and scale. The seat may end up to 0.6 m from where it was authored.)
-                            var seatTransform = g.Keep(PilotSeatTransform(g));
-                            var eyes = g.PlatformValue("GetLocalUserState", "Position", V3T);
-                            var wanted = g.Get(TF, "position", seatTransform) + (g.Get(TF, "position", g.ObjVar("EyePoint", TF)) - eyes);
-                            var home = g.Keep(g.Call(TF, "TransformPoint", Vec, g.Get(TF, "parent", seatTransform), g.GraphVar("SeatHome", V3T)));
-                            // It slides there over a fraction of a second (below): a jump of 30 cm reads as a drop.
-                            g.SetGraphVar("SeatTarget", g.Call(TF, "InverseTransformPoint", Vec, g.Get(TF, "parent", seatTransform),
-                                home + g.Call(V3T, "ClampMagnitude", new[] { V3T, typeof(float) }, null, wanted - home, 0.6f)));
-                            g.SetGraphVar("SeatSliding", true);
-                        }, () => g.SetGraphVar("SeatTimer", 0.5f)));
-                });
-                g.If(g.B("SeatSliding"), () =>
-                {
-                    var seatTransform = g.Keep(PilotSeatTransform(g));
-                    var goal = g.Keep(g.Call(TF, "TransformPoint", Vec, g.Get(TF, "parent", seatTransform), g.GraphVar("SeatTarget", V3T)));
-                    var next = g.Keep(g.Call(V3T, "MoveTowards", new[] { V3T, V3T, typeof(float) }, null,
-                        g.Get(TF, "position", seatTransform), goal, g.Get(typeof(Time), "deltaTime") * 0.9f));
-                    g.Set(TF, "position", seatTransform, next);
-                    g.If(g.Less(g.Distance(next, goal), 0.002f), () => g.SetGraphVar("SeatSliding", false));
-                });
+                g.If(g.Greater(g.F("EngineStarting"), 0f), () =>
+                    g.If(g.Less(g.SetGraphVar("EngineStarting", g.F("EngineStarting") - g.Get(typeof(Time), "deltaTime")), 0.0001f), () => EngineSwitch(g, true)));
+                // (Seats are not slid to fit the player any more, here or for passengers: every other client draws a
+                // rider against its own copy of the seat, so a seat moved on the sitter's client alone showed them off
+                // their seat by the slide on everyone else's screen. The builder puts each seat where the app's seat
+                // code puts an average avatar's eyes on the cockpit's eye point: FleetParts.SeatFor.)
 
                 var timer = g.SetGraphVar("HudTimer", g.F("HudTimer") + g.Get(typeof(Time), "deltaTime"));
                 g.If(g.Greater(timer, 0.25f), () =>
                 {
                     g.SetGraphVar("HudTimer", 0f);
                     g.If(g.B("Advanced"), () => AdvancedLit(g));
+                    FunctionsTick(g);
 
                     // Safety net for a pilot who left without a teleport: only trusted when nearly stopped.
                     var head = g.PlatformValue("GetLocalUserState", "Position", V3T);
@@ -1065,6 +1048,9 @@ namespace FlightWorld.FlightGraphs
             if (!aboard)
             {
                 AdvancedOff(g);
+                FunctionsRelease(g);
+                g.SetGraphVar("CruiseOn", false);
+                g.SetGraphVar("AltHoldOn", false);
                 g.SetGraphVar("RightThrustX", 0f);
                 g.SetGraphVar("RightThrustZ", 0f);
                 TrailsOff(g);
@@ -1177,6 +1163,10 @@ namespace FlightWorld.FlightGraphs
         static void Wreck(GraphWriter g, float extraDelay, Val knownAboard = null)
         {
             g.SetGraphVar("Dead", true);
+            g.SetObjVar("Wrecked", true);
+            g.SetGraphVar("GunFiring", false);
+            AnimBoolNamed(g, g.ObjVar("GunBool", typeof(string)), false);
+            Smoke(g, false);
             g.SetGraphVar("RespawnTimer", g.P("RespawnDelay") + extraDelay);
             g.SetGraphVar("Throttle", 0f);
             g.SetGraphVar("EngineOutput", 0f);
@@ -1254,6 +1244,7 @@ namespace FlightWorld.FlightGraphs
             g.SetGraphVar("FlapsOn", g.ObjVar("FlapsDefaultOn", typeof(bool)));
             g.SetGraphVar("FlapPos", g.Select(g.ObjVar("FlapsDefaultOn", typeof(bool)), 1f, 0f));
             AnimBool(g, "flaps", g.ObjVar("FlapsDefaultOn", typeof(bool)));
+            FunctionsHome(g);           // and rearmed, everything switched off (Sacc's respawn)
         }
 
         /// <summary>While flying, the thumbsticks steer the aircraft instead of moving or turning the player.</summary>
@@ -1452,13 +1443,19 @@ namespace FlightWorld.FlightGraphs
             // -- pilot inputs: keys and sticks move the virtual stick at a fixed rate; throttle is a lever --
             // (a stick held in the hand follows the hand, as Sacc's does: the slew only stands in for a thumbstick's travel)
             var slew = g.Keep(dt * g.Select(g.B("Advanced"), 60f, 5f));
-            Val Slew(string state, string key, string stick) =>
-                g.SetGraphVar(state, g.MoveTowards(g.F(state), g.Clamp(g.F(key) + g.F(stick), -1f, 1f), slew));
-            var inPitch = Slew("InPitch", "KeyPitch", "StickPitch");
-            var inYaw = Slew("InYaw", "KeyYaw", "StickYaw");
-            var inRoll = Slew("InRoll", "KeyRoll", "StickRoll");
+            // (altitude hold flies the stick while it is on and the pilot is not holding it: FlightGraphsFunctions.cs)
+            AltHoldStep(g, dt, vel, forward, up, right);
+            var held = g.Keep(g.And(g.B("AltHoldOn"), g.Not(g.B("StickHeld"))));
+            Val Slew(string state, string key, string stick, string hold) =>
+                g.SetGraphVar(state, g.Select(held, g.F(hold), g.MoveTowards(g.F(state), g.Clamp(g.F(key) + g.F(stick), -1f, 1f), slew)));
+            var inPitch = Slew("InPitch", "KeyPitch", "StickPitch", "AHOutPitch");
+            var inYaw = Slew("InYaw", "KeyYaw", "StickYaw", "AHOutYaw");
+            var inRoll = Slew("InRoll", "KeyRoll", "StickRoll", "AHOutRoll");
             var throttleRate = g.Clamp(g.F("KeyThrottle") + g.F("StickThrottle"), -1f, 1f);
-            var throttle = g.SetGraphVar("Throttle", g.Clamp01(g.F("Throttle") + throttleRate * g.P("KeyboardThrottleSens") * dt));
+            var manualThrottle = g.SetGraphVar("Throttle", g.Clamp01(g.F("Throttle") + throttleRate * g.P("KeyboardThrottleSens") * dt));
+            var throttle = g.Keep(CruiseThrottle(g, manualThrottle, speed, dt));
+            // with the engine off (or starting) it gives nothing, whatever the lever says (DFUNC_ToggleEngine)
+            var engineWanted = g.Keep(g.Select(g.B("EngineOff"), 0f, throttle));
             var brake = g.SetGraphVar("Brake", g.Max(g.F("KeyBrake"), g.F("TriggerBrake")));
 
             // -- the ground under the vehicle: one ray straight down its own belly, from just below its hull --
@@ -1470,7 +1467,12 @@ namespace FlightWorld.FlightGraphs
             var taxiing = g.SetGraphVar("Taxiing", g.And(g.Less(below, g.P("GroundContactDistance")), g.Not(g.B("GearUp"))), typeof(bool));
             // gear and flaps change drag and lift while they are out (DFUNC_Gear, DFUNC_Flaps)
             var flaps = g.Keep(g.Select(g.B("FlapsOn"), 1f, 0f));
-            var extraDrag = g.Keep(g.P("ExtraDrag") + g.Select(g.B("GearUp"), 0f, g.P("GearDrag")) + flaps * g.P("FlapsDrag"));
+            var extraDrag = g.Keep(g.P("ExtraDrag") + g.Select(g.B("GearUp"), 0f, g.P("GearDrag")) + flaps * g.P("FlapsDrag") +
+                g.Select(g.Or(g.B("CanopyOpen"), g.B("CanopyBroken")), g.P("CanopyDrag"), 0f));
+            // the hook: catching a cable, and being stopped by it (DFUNC_Hook)
+            HookStep(g, dt, vel, speed);
+            // the gun pushes back while it fires (DFUNC_Gun's RecoilForce)
+            g.If(g.B("GunFiring"), () => g.Do(RB, "AddRelativeForce", new[] { V3T, typeof(ForceMode) }, null, g.V3(0f, 0f, -g.P("GunRecoil")), ForceMode.Acceleration));
             var extraLift = g.Keep(g.P("ExtraLift") + flaps * g.P("FlapsLift"));
             var maxLift = g.Keep(g.P("MaxLift") + flaps * g.P("FlapsExtraMaxLift"));
             var airborne = g.Keep(g.Select(taxiing, 0f, 1f));                              // "ThrustVecGrounded"
@@ -1515,10 +1517,10 @@ namespace FlightWorld.FlightGraphs
             var aoaLiftYaw = AoaLift(aoaYaw, "MaxAngleOfAttackYaw", "HighYawAoaMinControl");
 
             // -- engine response: spools up faster than it spools down --
-            var spool = g.Select(g.Less(g.F("EngineOutput"), throttle), g.P("AccelerationResponse"),
+            var spool = g.Select(g.Less(g.F("EngineOutput"), engineWanted), g.P("AccelerationResponse"),
                 g.P("AccelerationResponse") * g.P("EngineSpoolDownSpeedMulti"));
             var engineBefore = g.Keep(g.F("EngineOutput"));
-            var engine = g.SetGraphVar("EngineOutput", g.Lerp(engineBefore, throttle, g.Blend(spool, dt)));
+            var engine = g.SetGraphVar("EngineOutput", g.Lerp(engineBefore, engineWanted, g.Blend(spool, dt)));
 
             // -- airflow over the airframe --
             var sidespeed = g.Keep(g.Dot(vel, right));

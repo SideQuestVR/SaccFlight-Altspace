@@ -46,13 +46,15 @@ namespace FlightWorld.FlightGraphs
             g.Declare("ThrustHeld", false);
             g.Declare("ThrustZero", Vector3.zero);
             g.Declare("StickThrustY", 0f);
+            g.Declare("WheelValue", 0f);        // a boat's wheel: how far it has been turned, in degrees (SaccSeaVehicle)
+            g.Declare("WheelLast", Vector3.up);
             g.Declare("RightThrustX", 0f);      // the balloon's right stick (RightStickThrusts)
             g.Declare("RightThrustZ", 0f);
         }
 
-        /// <summary>Whether the local player has the advanced controls on (the board's button; boats keep the sticks).</summary>
+        /// <summary>Whether the local player has the advanced controls on (the board's button).</summary>
         static Val AdvancedWanted(GraphWriter g) =>
-            g.And(g.ObjVarOf(g.ObjVar("Watch", typeof(GameObject)), "AdvancedControls", typeof(bool)), g.Not(g.ObjVar("IsBoat", typeof(bool))));
+            g.ObjVarOf(g.ObjVar("Watch", typeof(GameObject)), "AdvancedControls", typeof(bool));
 
         /// <summary>
         /// Set up for the advanced controls, or back to the sticks: dial displays shown or hidden, nothing held or
@@ -79,7 +81,8 @@ namespace FlightWorld.FlightGraphs
                     foreach (var hand in new[] { "LeftHand", "RightHand" })
                         g.PlatformDo("AttachToPlayer", ("Object", g.Get(typeof(Transform), "gameObject", g.ObjVar(hand, typeof(Transform)))));
                     AdvancedLit(g);
-                });
+                }, () => FunctionsRelease(g));
+            else FunctionsRelease(g);
         }
 
         /// <summary>The pilot is in the cockpit: notice the board's switch being turned either way, and keep the display's marks right.</summary>
@@ -152,6 +155,7 @@ namespace FlightWorld.FlightGraphs
             {
                 g.If(Picked(g, side, "GearSlot"), gear);
                 g.If(Picked(g, side, "FlapsSlot"), flaps);
+                FunctionsPress(g, side);
             });
         }
 
@@ -210,15 +214,31 @@ namespace FlightWorld.FlightGraphs
                     g.SetGraphVar("StickHeld", true);
                     g.SetGraphVar("StickUp0", g.Call(TFT, "InverseTransformDirection", new[] { V3 }, stickHand, g.Get(TFT, "up")));
                     g.SetGraphVar("StickFwd0", g.Call(TFT, "InverseTransformDirection", new[] { V3 }, stickHand, g.Get(TFT, "forward")));
+                    g.SetGraphVar("WheelValue", -g.F("InYaw") * g.P("SteeringWheelDegrees"));
+                    g.SetGraphVar("WheelLast", Vector3.up);
                 });
                 var up = g.Keep(InVehicle(g.Call(TFT, "TransformDirection", new[] { V3 }, stickHand, g.GraphVar("StickUp0", V3))));
                 var ahead = g.Keep(InVehicle(g.Call(TFT, "TransformDirection", new[] { V3 }, stickHand, g.GraphVar("StickFwd0", V3))));
                 // -(acos(c) - 90 degrees) / the angle for full deflection
                 Val Deflection(Val component, string maximum) =>
                     (90f - g.Call(typeof(Mathf), "Acos", new[] { typeof(float) }, null, g.Clamp(component, -1f, 1f)) * 57.29578f) / g.P(maximum);
-                g.SetGraphVar("StickPitch", Deflection(g.Z(up), "MaxJoyX"));      // forward = nose down
-                g.SetGraphVar("StickYaw", Deflection(g.X(ahead), "MaxJoyY"));     // twisted right = yaw right
-                g.SetGraphVar("StickRoll", -Deflection(g.X(up), "MaxJoyZ"));      // tilted right = roll right
+                g.If(g.ObjVar("IsBoat", typeof(bool)), () =>
+                {
+                    // a boat's helm is a wheel: the hand's turn about the boat's length adds up, a full turn of
+                    // SteeringWheelDegrees being full rudder (clockwise = to starboard)
+                    var across = g.Keep(g.Call(V3, "ProjectOnPlane", new[] { V3, V3 }, null, up, Vector3.forward));
+                    var turned = g.SetGraphVar("WheelValue", g.F("WheelValue") +
+                        g.Call(V3, "SignedAngle", new[] { V3, V3, V3 }, null, g.GraphVar("WheelLast", V3), across, Vector3.forward));
+                    g.SetGraphVar("WheelLast", across);
+                    g.SetGraphVar("StickYaw", g.Clamp(-turned / g.P("SteeringWheelDegrees"), -1f, 1f));
+                    g.SetGraphVar("StickPitch", 0f);
+                    g.SetGraphVar("StickRoll", 0f);
+                }, () =>
+                {
+                    g.SetGraphVar("StickPitch", Deflection(g.Z(up), "MaxJoyX"));      // forward = nose down
+                    g.SetGraphVar("StickYaw", Deflection(g.X(ahead), "MaxJoyY"));     // twisted right = yaw right
+                    g.SetGraphVar("StickRoll", -Deflection(g.X(up), "MaxJoyZ"));      // tilted right = roll right
+                });
             }, () => g.If(g.B("StickHeld"), () =>
             {
                 g.SetGraphVar("StickHeld", false);
@@ -289,6 +309,9 @@ namespace FlightWorld.FlightGraphs
                 g.SetGraphVar("ThrustHeld", false);
                 foreach (var name in new[] { "StickThrustX", "StickThrustY", "StickThrustZ" }) g.SetGraphVar(name, 0f);
             }));
+
+            // ---- the other dial functions: gun, flares, bombs, cruise speed, smoke colour, missile lock, guided-bomb aim
+            FunctionsFrame(g, g.Keep(g.Get(typeof(Time), "deltaTime")));
         }
     }
 }

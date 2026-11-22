@@ -29,7 +29,10 @@ namespace FlightWorld.FlightGraphs
             "Hold the right grip and move your hand to work the cockpit's stick: tilt to pitch and roll, twist to yaw.\n" +
             "Double-tap the grip to keep hold of it. Hold the left grip and push the throttle forward or pull it back\n" +
             "(helicopters: raise or lower it). A thumbstick picks a function on its dial display; that side's trigger\n" +
-            "works it: gear and flaps toggle, brakes while held, thrust tilt and thrusters by moving your hand.\n\n" +
+            "works it: gear, flaps, canopy, hook, smoke, cruise and altitude hold toggle; brakes, gun, flares and bombs\n" +
+            "while held; thrust tilt, thrusters and the cruise speed by moving your hand. Engine: one pull starts it, a\n" +
+            "double pull stops it. Missiles lock on a crewed aircraft ahead (a tone), then pull. Guided bomb: look at the\n" +
+            "target, pull to lock, double pull to fire. A hook catches the cables across the runway ends.\n\n" +
             "<b>Keyboard</b>\n" +
             "Shift / Ctrl = throttle    S / W = nose up / down    A / D = roll\n" +
             "Q / E = rudder    B = brakes    G = gear    V = flaps\n" +
@@ -200,6 +203,23 @@ namespace FlightWorld.FlightGraphs
             return board;
         }
 
+        /// <summary>
+        /// Where a seated player's eyes come out relative to a platform seat's origin, from the app's seat code
+        /// (FlexaMover, 2026-11-22): the pelvis is pinned at the seat pose's pelvis point (SeatPose.Default: 4 cm above
+        /// the origin), and the view hangs the avatar's own pelvis-to-eye reach above it (AvatarSystem.SeatedEyeReach,
+        /// about 0.70 m for a human avatar), a fifth of that reach ahead (SeatHeadForwardShare 0.20). A seat is put so
+        /// those eyes land on the vehicle's eye point. (Until 2026-11-22 this assumed 0.45 m up and 0.30 m ahead, measured
+        /// on the client of 2026-11-21: on the current one that sat every player about 0.3 m too high and 0.15 m back.)
+        /// </summary>
+        public const float SeatPelvisAbove = 0.04f, SeatEyeReach = 0.70f, SeatHeadForwardShare = 0.20f;
+        public const float SeatEyeAbove = SeatPelvisAbove + SeatEyeReach, SeatEyeAhead = SeatHeadForwardShare * SeatEyeReach;
+
+        /// <summary>The seat origin that puts a seated player's eyes on `eye` (in the vehicle's axes `up` / `forward`).</summary>
+        public static Vector3 SeatFor(Vector3 eye, Vector3 up, Vector3 forward) => eye - up * SeatEyeAbove - forward * SeatEyeAhead;
+
+        /// <summary>A seat's click area, in the seat's own axes: around where the sitter's head and chest are.</summary>
+        public static Vector3 SeatClickCentre => new Vector3(0f, SeatEyeAbove - 0.05f, SeatEyeAhead - 0.2f);
+
         /// <summary>How far away a reset sign can be clicked, and how near a player must be for its vehicle to be woken.</summary>
         public const float SignReach = 8f, SignWakeDistance = 11f;
         const string WatchName = "FleetWatch";
@@ -262,6 +282,44 @@ namespace FlightWorld.FlightGraphs
             return watch;
         }
 
+        /// <summary>
+        /// The object whose graph flies every missile, guided bomb and bomb in the air (FlightGraphs.BuildWeaponsWorld),
+        /// whoever fired it: the rounds a vehicle launches are put on its list. Made on first use.
+        /// </summary>
+        public static GameObject WeaponsWorld()
+        {
+            const string name = "WeaponsWorld";
+            var world = GameObject.Find(name);
+            if (world == null) world = new GameObject(name);
+            if (!world.TryGetComponent<Unity.VisualScripting.Variables>(out var variables)) variables = world.AddComponent<Unity.VisualScripting.Variables>();
+            variables.declarations.Set("LiveShots", new Unity.VisualScripting.AotList());
+            variables.declarations.Set("LiveCount", 0f);
+            if (!variables.declarations.IsDefined("Aircraft")) variables.declarations.Set("Aircraft", new Unity.VisualScripting.AotList());
+            // the guided bomb's aim, seen only by the pilot aiming it: green where they look, red where they locked
+            foreach (var (marker, colour) in new[] { ("AimMarker", new Color(0.2f, 1f, 0.35f)), ("LockMarker", new Color(1f, 0.2f, 0.15f)) })
+            {
+                var t = world.transform.Find(marker);
+                var ball = t != null ? t.gameObject : GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                ball.name = marker;
+                ball.transform.SetParent(world.transform, false);
+                foreach (var c in ball.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(c);
+                var material = FlatMaterial(marker, colour);
+                material.SetColor("_EmissionColor", colour);
+                material.EnableKeyword("_EMISSION");
+                var drawn = ball.GetComponent<MeshRenderer>();
+                drawn.sharedMaterial = material;
+                drawn.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                ball.SetActive(false);
+                variables.declarations.Set(marker, ball);
+            }
+            var graph = AssetDatabase.LoadAssetAtPath<Unity.VisualScripting.ScriptGraphAsset>(FlightGraphs.WeaponsPath);
+            if (graph == null) throw new Exception("weapons graph missing: run FlightWorld/Flight/Regenerate Flight Graphs");
+            if (!world.TryGetComponent<Unity.VisualScripting.ScriptMachine>(out var machine)) machine = world.AddComponent<Unity.VisualScripting.ScriptMachine>();
+            machine.nest.SwitchToMacro(graph);
+            EditorUtility.SetDirty(world);
+            return world;
+        }
+
         /// <summary>The object that follows the local player's left or right hand (see Watch).</summary>
         public static Transform HandTracker(bool left) =>
             (Transform)Watch().GetComponent<Unity.VisualScripting.Variables>().declarations.Get(left ? "LeftHand" : "RightHand");
@@ -313,6 +371,14 @@ namespace FlightWorld.FlightGraphs
             clock.Set("BusyVehicles", busy);
             clock.Set("TickCount", (float)Mathf.Max(ticked.Count, 1));
             EditorUtility.SetDirty(watch);
+            // what weapons can hit and missiles can lock on to: the vehicles on the aircraft graph (a boat too)
+            var weapons = WeaponsWorld();
+            var aircraft = new Unity.VisualScripting.AotList();
+            foreach (GameObject vehicle in ticked) aircraft.Add(vehicle);
+            weapons.GetComponent<Unity.VisualScripting.Variables>().declarations.Set("Aircraft", aircraft);
+            foreach (GameObject vehicle in ticked)
+                vehicle.GetComponent<Unity.VisualScripting.Variables>().declarations.Set("TargetIndex", (float)aircraft.IndexOf(vehicle));
+            EditorUtility.SetDirty(weapons);
             return list.Count;
         }
 

@@ -441,15 +441,15 @@ namespace FlightWorld.FlightGraphs
                 }
                 var exit = go.transform.Find("Exit");                    // where the original lets its riders out
                 Vector3 exitPoint = exit != null ? exit.position : go.transform.position + root.transform.right * 2f;
-                // A seated player's eyes come out roughly 0.45 m above and 0.3 m ahead of a platform seat's origin.
-                go.transform.position = eyePoint.position - root.transform.up * 0.45f - root.transform.forward * 0.30f;
+                // The seat goes where the app will put the sitter's eyes on the eye point (FleetParts.SeatFor).
+                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, root.transform.forward);
                 go.transform.rotation = root.transform.rotation;
                 go.layer = 5;                                            // UI layer: the only layers that can be clicked
                 foreach (var old in go.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(old);
                 var click = go.AddComponent<BoxCollider>();
                 click.isTrigger = true;
                 click.size = new Vector3(0.6f, 1.2f, 0.9f);              // (seats sit side by side in a car: no wider than a seat)
-                click.center = new Vector3(0f, 0.4f, 0.1f);
+                click.center = FleetParts.SeatClickCentre;
                 var seatComponent = go.AddComponent(GraphTypes.Find("BS.BSSeat"));
                 FleetParts.SetSerialized(seatComponent, report, ("unseatOnMove", false), ("unseatOnJump", true), ("viewMode", 0),
                     ("useExitPosition", true), ("exitPosition", go.transform.InverseTransformPoint(exitPoint)));

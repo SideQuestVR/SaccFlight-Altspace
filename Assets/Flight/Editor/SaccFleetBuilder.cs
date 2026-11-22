@@ -27,7 +27,7 @@ namespace FlightWorld.FlightGraphs
     ///  - seats become platform seats, the body a synced object, and the flight graph is attached with the
     ///    prefab's own values as its variables.
     /// </summary>
-    public static class SaccFleetBuilder
+    public static partial class SaccFleetBuilder
     {
         const string ReportPath = "Logs/aircraft_build_report.txt";
         const string PrefabDir = "Assets/Sacc/Prefabs";
@@ -200,6 +200,7 @@ namespace FlightWorld.FlightGraphs
                     }
                 }
                 FleetParts.BuildBoards(signs, origin, facing, ground);
+                BuildCables(signs, report);
                 foreach (var tag in new[] { "DFUNC", "DialFuncOn", "EnableInVehicle", "MFD", "RStickDisplayHighlighter" })
                     if (UnityEditorInternal.InternalEditorUtility.tags.Contains(tag) && GameObject.FindGameObjectsWithTag(tag).Length == 0)
                         UnityEditorInternal.InternalEditorUtility.RemoveTag(tag);
@@ -274,7 +275,7 @@ namespace FlightWorld.FlightGraphs
             for (int i = 0; i < extraSeatsFor.Length; i++)
             {
                 // (made where the seat code below expects an authored seat: it puts the rider's eyes 0.75 m above
-                // this point and then the seat 0.45 m under and 0.3 m behind the eyes)
+                // this point, then the seat where the app will put them on those eyes)
                 var pilotGo = seats.First(s => s.pilot).go.transform;
                 var extra = new GameObject($"PassengerSeat (extra {i + 1})");
                 extra.transform.SetParent(pilotGo.parent, false);
@@ -338,8 +339,11 @@ namespace FlightWorld.FlightGraphs
             Vector2 Pair(string field) => thrusters != null && thrusters.GetType().GetField(field)?.GetValue(thrusters) is Vector2 pair ? pair : Vector2.zero;
             Vector2 thrustX = Pair("ThreeDThrottleStrengthX"), thrustY = Pair("ThreeDThrottleStrengthY"), thrustZ = Pair("ThreeDThrottleStrengthZ");
             bool hasCanopy = StandIn("DFUNC_Canopy") != null;
-            var dialLeft = ReadDial(entity, true);
-            var dialRight = ReadDial(entity, false);
+            var functionOf = new Dictionary<string, MonoBehaviour>();
+            var dialLeft = ReadDial(entity, true, functionOf);
+            var dialRight = ReadDial(entity, false, functionOf);
+            // (read now: the dial functions' scripts and their holder are removed with the other stand-ins below)
+            var functionSettings = ReadFunctionSettings(root, functionOf, sound, report, name);
             var maxJoy = flight.GetType().GetField("MaxJoyAngles")?.GetValue(flight) is Vector3 joy && joy.x > 0f && joy.y > 0f && joy.z > 0f
                 ? joy : new Vector3(45f, 45f, 45f);
             var gauges = StandIn("SaccGaugeController");
@@ -631,15 +635,15 @@ namespace FlightWorld.FlightGraphs
                 float groundUnder = wheels.Length > 0 ? wheels.Min(w => w.transform.position.y - w.radius - w.suspensionDistance * 0.5f) : root.transform.position.y;
                 Vector3 exitPoint = special.exitAt.HasValue ? new Vector3(special.exitAt.Value.x, groundUnder + 0.25f, special.exitAt.Value.y)
                     : exit != null ? exit.position : go.transform.position + root.transform.right * 3f;
-                // A seated player's eyes come out roughly 0.45 m above and 0.3 m ahead of a platform seat's origin.
-                go.transform.position = eyePoint.position - root.transform.up * 0.45f - root.transform.forward * 0.30f;
+                // The seat goes where the app will put the sitter's eyes on the eye point (FleetParts.SeatFor).
+                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, root.transform.forward);
                 go.transform.rotation = root.transform.rotation;
                 go.layer = 5;                                            // UI layer: the only layers that can be clicked
                 foreach (var old in go.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(old);
                 var click = go.AddComponent<BoxCollider>();
                 click.isTrigger = true;
                 click.size = pilot ? new Vector3(1.0f, 1.4f, 1.1f) : special.passengerClick;
-                click.center = new Vector3(0f, 0.4f, 0.1f);
+                click.center = FleetParts.SeatClickCentre;
                 var seatComponent = go.AddComponent(GraphTypes.Find("BS.BSSeat"));
                 FleetParts.SetSerialized(seatComponent, report, ("unseatOnMove", false), ("unseatOnJump", true), ("viewMode", 0),
                     ("useExitPosition", true), ("exitPosition", go.transform.InverseTransformPoint(exitPoint)));
@@ -806,6 +810,7 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("MaxJoyX", maxJoy.x);
             variables.declarations.Set("MaxJoyY", maxJoy.y);
             variables.declarations.Set("MaxJoyZ", maxJoy.z);
+            if (!tuning.ContainsKey("SteeringWheelDegrees")) variables.declarations.Set("SteeringWheelDegrees", 360f);   // (a boat's wheel; aircraft have none)
             variables.declarations.Set("DialSensitivity", dialLeft.sensitivity);
             var gearLit = new AotList();
             var flapsLit = new AotList();
@@ -819,22 +824,34 @@ namespace FlightWorld.FlightGraphs
                 foreach (var usable in dial.valid) valid.Add(usable);
                 if (valid.Count == 0) valid.Add(false);
                 d.Set(side + "DialValid", valid);
-                d.Set(side + "GearSlot", dial.gear);
-                d.Set(side + "FlapsSlot", dial.flaps);
-                d.Set(side + "BrakeSlot", dial.brake);
-                d.Set(side + "VtolSlot", dial.vtol);
-                d.Set(side + "ThrustSlot", dial.thrust);
+                foreach (var fn in DialKinds) d.Set(side + Cap(fn) + "Slot", dial.Slot(fn));
                 var highlighter = Spare(dial.highlighter, side + "Highlighter");
                 highlighter.localEulerAngles = new Vector3(0f, 180f, 0f);       // nothing picked (as SaccEntity shows it)
                 d.Set(side + "Highlighter", highlighter);
                 // the lit marks on the display: gear down and flaps out are ported; the rest stay dark
-                foreach (var lit in dial.gearOn.Where(o => o)) { lit.SetActive(true); gearLit.Add(lit); }
-                foreach (var lit in dial.flapsOn.Where(o => o)) { lit.SetActive(flapsDefaultOn); flapsLit.Add(lit); }
-                foreach (var lit in dial.otherOn.Where(o => o)) lit.SetActive(false);
+                foreach (var lit in dial.Lit("gear").Where(o => o)) { lit.SetActive(true); gearLit.Add(lit); }
+                foreach (var lit in dial.Lit("flaps").Where(o => o)) { lit.SetActive(flapsDefaultOn); flapsLit.Add(lit); }
+                foreach (var pair in dial.lit.Where(p => p.Key != "gear" && p.Key != "flaps"))
+                    foreach (var lit in pair.Value.Where(o => o)) lit.SetActive(false);
             }
             variables.declarations.Set("GearLit", gearLit);
             variables.declarations.Set("FlapsLit", flapsLit);
-            variables.declarations.Set("ThrustersOnDial", dialLeft.thrust >= 0f || dialRight.thrust >= 0f);
+            variables.declarations.Set("ThrustersOnDial", dialLeft.Slot("thrust") >= 0f || dialRight.Slot("thrust") >= 0f);
+            foreach (var fn in new[] { "engine", "canopy", "cruise", "althold", "hook", "smoke", "agm" })
+            {
+                var marks = new AotList();
+                foreach (var lit in dialLeft.Lit(fn).Concat(dialRight.Lit(fn)).Where(o => o)) { lit.SetActive(false); marks.Add(lit); }
+                variables.declarations.Set(Cap(fn) + "Lit", marks);
+            }
+            functionSettings.Store(variables.declarations, unused, Spare, SpareText);
+            variables.declarations.Set("HitRadius", Mathf.Max(0.3f * bounds.size.magnitude, 2f));
+            variables.declarations.Set("Targetable", !boat);
+            variables.declarations.Set("WeaponsWorld", FleetParts.WeaponsWorld());
+            foreach (var key in new[] { "IncomingDamage", "FlareTime", "FlareBurst", "Incoming" })
+                variables.declarations.Set(key, key == "FlareTime" ? -100f : 0f);
+            variables.declarations.Set("Crewed", false);
+            variables.declarations.Set("TargetIndex", -1f);         // (its place on the weapons' list: FleetParts.RegisterWithWatch)
+            variables.declarations.Set("Wrecked", false);
             variables.declarations.Set("RightStickThrusts", special.rightStickThrusts && hasThrusters);
             if (special.rightStickThrusts && !hasThrusters) report.AppendLine($"WARNING {name}: right stick should work its thrusters, but it has none");
             // The pilot's two dial displays are shown only with the advanced controls on; copies for other seats never.
@@ -1009,14 +1026,45 @@ namespace FlightWorld.FlightGraphs
             public Vector2 check;
             public float degrees, sensitivity = 0.7f;
             public Transform highlighter;
-            public float gear = -1f, flaps = -1f, brake = -1f, vtol = -1f, thrust = -1f;
-            public readonly List<GameObject> gearOn = new List<GameObject>(), flapsOn = new List<GameObject>(), otherOn = new List<GameObject>();
-            public string Describe() => count == 0 ? "none" : $"{count}" +
-                (gear >= 0f ? " gear" : "") + (flaps >= 0f ? " flaps" : "") + (brake >= 0f ? " brake" : "") + (vtol >= 0f ? " tilt" : "") + (thrust >= 0f ? " thrusters" : "");
+            /// <summary>Slot of each kind of function the graph works (the first one, if a dial has two).</summary>
+            public readonly Dictionary<string, float> slots = new Dictionary<string, float>();
+            /// <summary>The display's lit marks, by kind ("" = a function that has no state to show).</summary>
+            public readonly Dictionary<string, List<GameObject>> lit = new Dictionary<string, List<GameObject>>();
+            public float Slot(string kind) => slots.TryGetValue(kind, out var at) ? at : -1f;
+            public IEnumerable<GameObject> Lit(string kind) => lit.TryGetValue(kind, out var marks) ? marks : Enumerable.Empty<GameObject>();
+            public string Describe() => count == 0 ? "none" : $"{count}" + string.Concat(slots.Keys.OrderBy(k => slots[k]).Select(k => " " + k));
         }
 
+        /// <summary>The kind of function the graph works for each dial-function script ("" = not ported).</summary>
+        static string KindOf(MonoBehaviour function)
+        {
+            switch (function.GetType().Name)
+            {
+                case "DFUNC_Gear": return "gear";
+                case "DFUNC_Flaps": case "DFUNC_a320_FlapController": return "flaps";
+                case "DFUNC_Brake": case "DFUNC_a320_Brake": return "brake";
+                case "DFUNC_VTOLAngle": return "vtol";
+                case "SAV_ThreeDThrust": return "thrust";
+                case "DFUNC_ToggleEngine": case "DFUNC_a320_AutoStarter": return "engine";
+                case "DFUNC_Canopy": return "canopy";
+                case "DFUNC_Cruise": case "DFUNC_a320_AutoThrust": return "cruise";
+                case "DFUNC_AltHold": return "althold";
+                case "DFUNC_Hook": return "hook";
+                case "DFUNC_Smoke": return "smoke";
+                case "DFUNC_Gun": return "gun";
+                case "DFUNC_AAM": return "aam";
+                case "DFUNC_AGM": return "agm";
+                case "DFUNC_Bomb": return "bomb";
+                case "DFUNC_Flares": return "flares";
+                default: return "";
+            }
+        }
+
+        /// <summary>Every kind the dials can hold, in the order their slot variables are written.</summary>
+        static readonly string[] DialKinds = { "gear", "flaps", "brake", "vtol", "thrust", "engine", "canopy", "cruise", "althold", "hook", "smoke", "gun", "aam", "agm", "bomb", "flares" };
+
         /// <summary>Read a dial as SaccEntity sets it up when it starts (its selection maths included).</summary>
-        static Dial ReadDial(SaccEntity entity, bool left)
+        static Dial ReadDial(SaccEntity entity, bool left, Dictionary<string, MonoBehaviour> firstOfKind)
         {
             var functions = (left ? entity.Dial_Functions_L : entity.Dial_Functions_R) ?? new MonoBehaviour[0];
             int n = functions.Length;
@@ -1039,37 +1087,14 @@ namespace FlightWorld.FlightGraphs
             {
                 var function = functions[i];
                 if (function == null) continue;
-                var lit = new List<GameObject>();
-                if (function.GetType().GetField("Dial_Funcon")?.GetValue(function) is GameObject one && one) lit.Add(one);
-                if (function.GetType().GetField("Dial_Funcon_Array")?.GetValue(function) is GameObject[] many) lit.AddRange(many.Where(o => o));
-                switch (function.GetType().Name)
-                {
-                    case "DFUNC_Gear":
-                        if (dial.gear < 0f) dial.gear = i;
-                        dial.gearOn.AddRange(lit);
-                        break;
-                    case "DFUNC_Flaps":
-                    case "DFUNC_a320_FlapController":
-                        if (dial.flaps < 0f) dial.flaps = i;
-                        dial.flapsOn.AddRange(lit);
-                        break;
-                    case "DFUNC_Brake":
-                    case "DFUNC_a320_Brake":
-                        if (dial.brake < 0f) dial.brake = i;
-                        dial.otherOn.AddRange(lit);
-                        break;
-                    case "DFUNC_VTOLAngle":
-                        if (dial.vtol < 0f) dial.vtol = i;
-                        dial.otherOn.AddRange(lit);
-                        break;
-                    case "SAV_ThreeDThrust":
-                        if (dial.thrust < 0f) dial.thrust = i;
-                        dial.otherOn.AddRange(lit);
-                        break;
-                    default:
-                        dial.otherOn.AddRange(lit);
-                        break;
-                }
+                var marks = new List<GameObject>();
+                if (function.GetType().GetField("Dial_Funcon")?.GetValue(function) is GameObject one && one) marks.Add(one);
+                if (function.GetType().GetField("Dial_Funcon_Array")?.GetValue(function) is GameObject[] many) marks.AddRange(many.Where(o => o));
+                string kind = KindOf(function);
+                if (kind.Length > 0 && !dial.slots.ContainsKey(kind)) dial.slots[kind] = i;
+                if (kind.Length > 0 && !firstOfKind.ContainsKey(kind)) firstOfKind[kind] = function;
+                if (!dial.lit.TryGetValue(kind, out var list)) dial.lit[kind] = list = new List<GameObject>();
+                list.AddRange(marks);
             }
             return dial;
         }
