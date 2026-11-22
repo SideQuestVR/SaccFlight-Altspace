@@ -18,7 +18,7 @@ namespace FlightWorld.FlightGraphs
     /// Input conventions (Sacc's RotationInputs): pitch -1 = nose up, +1 = nose down;
     /// yaw -1 = nose left, +1 = nose right; roll -1 = roll right, +1 = roll left.
     /// </summary>
-    public static class FlightGraphs
+    public static partial class FlightGraphs
     {
         public const string CorePath = "Assets/Flight/Graphs/FlightCore.asset";
         public const string WatchPath = "Assets/Flight/Graphs/FleetWatch.asset";
@@ -127,6 +127,7 @@ namespace FlightWorld.FlightGraphs
             g.Declare("SeatSliding", false);
             g.Declare("SpawnPosition", Vector3.zero);
             g.Declare("SpawnRotation", Quaternion.identity);
+            DeclareAdvanced(g);
 
             // ---- remember the parking spot ------------------------------------------------------------
             g.On(new Start(), _ =>
@@ -206,11 +207,22 @@ namespace FlightWorld.FlightGraphs
             }
 
             // ---- VR input: right stick = pitch / roll, left stick = throttle / yaw, left trigger = brakes ----
+            // (With the advanced controls on, the hands work the cockpit's stick and throttle instead and the
+            // thumbsticks pick functions on the dials: FlightGraphsHands.cs.)
             g.On(g.Platform("OnControllerAxisUpdate"), e =>
             {
-                var x = g.EventOut(e, "X Axis", typeof(float));
-                var y = g.EventOut(e, "Y Axis", typeof(float));
-                g.If(g.Same(g.EventOut(e, "Hand Side", typeof(int)), 1), () =>
+                var x = g.Keep(g.EventOut(e, "X Axis", typeof(float)));
+                var y = g.Keep(g.EventOut(e, "Y Axis", typeof(float)));
+                var hand = g.Keep(g.EventOut(e, "Hand Side", typeof(int)));
+                // (the balloon: the right stick pushes it ahead, astern and sideways with its thrusters, in either mode)
+                g.If(g.And(g.Same(hand, 1), g.ObjVar("RightStickThrusts", typeof(bool))), () =>
+                {
+                    g.SetGraphVar("RightThrustX", x);
+                    g.SetGraphVar("RightThrustZ", y);
+                }, () =>
+                g.If(g.B("Advanced"), () =>
+                    g.If(g.Same(hand, 1), () => DialPick(g, "R", x, y), () => DialPick(g, "L", x, y)), () =>
+                g.If(g.Same(hand, 1), () =>
                 {
                     g.SetGraphVar("StickPitch", y);            // stick back = nose up
                     g.SetGraphVar("StickRoll", -x);
@@ -235,20 +247,33 @@ namespace FlightWorld.FlightGraphs
                         g.SetGraphVar("StickThrustX", 0f);
                         g.SetGraphVar("StickYaw", x);
                     });
-                });
+                })));
             });
             // (button 1 = grip, hand 0 = left)
             foreach (var (unit, held) in new[] { ("OnControllerButtonPressed", true), ("OnControllerButtonReleased", false) })
                 g.On(g.Platform(unit), e =>
-                    g.If(g.And(g.Same(g.EventOut(e, "Button Type", typeof(int)), 1), g.Same(g.EventOut(e, "Hand Side", typeof(int)), 0)), () =>
+                    g.If(g.Same(g.EventOut(e, "Button Type", typeof(int)), 1), () =>
                     {
-                        g.SetGraphVar("LeftGrip", held);
-                        if (!held)
-                            foreach (var name in new[] { "StickVtol", "StickThrustX", "StickThrustZ" }) g.SetGraphVar(name, 0f);
+                        var hand = g.Keep(g.EventOut(e, "Hand Side", typeof(int)));
+                        Grip(g, hand, held);
+                        g.If(g.And(g.Same(hand, 0), g.Not(g.B("Advanced"))), () =>
+                        {
+                            g.SetGraphVar("LeftGrip", held);
+                            if (!held)
+                                foreach (var name in new[] { "StickVtol", "StickThrustX", "StickThrustZ" }) g.SetGraphVar(name, 0f);
+                        });
                     }));
             g.On(g.Platform("OnTriggerAxisUpdate"), e =>
-                g.If(g.Same(g.EventOut(e, "Hand Side", typeof(int)), 0), () =>
-                    g.SetGraphVar("TriggerBrake", g.EventOut(e, "Trigger Value", typeof(float)))));
+            {
+                var value = g.Keep(g.EventOut(e, "Trigger Value", typeof(float)));
+                var hand = g.Keep(g.EventOut(e, "Hand Side", typeof(int)));
+                g.If(g.B("Advanced"), () => g.If(g.Same(hand, 0),
+                    () => DialTrigger(g, "L", value, () => Toggle("GearUp", "gearup", "HasGear", "gear:"), () => Toggle("FlapsOn", "flaps", "HasFlaps", "flaps:")),
+                    () => DialTrigger(g, "R", value, () => Toggle("GearUp", "gearup", "HasGear", "gear:"), () => Toggle("FlapsOn", "flaps", "HasFlaps", "flaps:"))),
+                    () => g.If(g.Same(hand, 0), () => g.SetGraphVar("TriggerBrake", value)));
+            });
+            // the hands, once the app has put the hand objects on them this frame (the fleet watch's LateUpdate)
+            g.On(Custom(g, "fw_hands"), _ => g.If(g.And(g.B("Piloting"), g.B("Advanced")), () => Hands(g)));
 
             // ---- taking the pilot's seat: clicking it seats the player (the seat component does that) -------
             // (A click on a seat somebody else is in does not seat you, so it must not make you the pilot either.
@@ -634,6 +659,7 @@ namespace FlightWorld.FlightGraphs
             // ---- per frame while piloting: seat fit, instruments, controls --------------------------------------
             void PilotFrame()
             {
+                AdvancedFrame(g);
                 // Players sit at different heights (standing or seated in real life, tall or short), the
                 // platform puts a seated head some way ahead of the seat's origin, and a cockpit only works
                 // from one eye position. A moment after sitting, once the player has settled, the seat is
@@ -673,6 +699,7 @@ namespace FlightWorld.FlightGraphs
                 g.If(g.Greater(timer, 0.25f), () =>
                 {
                     g.SetGraphVar("HudTimer", 0f);
+                    g.If(g.B("Advanced"), () => AdvancedLit(g));
 
                     // Safety net for a pilot who left without a teleport: only trusted when nearly stopped.
                     var head = g.PlatformValue("GetLocalUserState", "Position", V3T);
@@ -1037,6 +1064,9 @@ namespace FlightWorld.FlightGraphs
             SeatClicks(g);
             if (!aboard)
             {
+                AdvancedOff(g);
+                g.SetGraphVar("RightThrustX", 0f);
+                g.SetGraphVar("RightThrustZ", 0f);
                 TrailsOff(g);
                 AnimFloat(g, "Gs", 0.5f);
                 AnimFloat(g, "brake", 0f);
@@ -1312,6 +1342,23 @@ namespace FlightWorld.FlightGraphs
                 g.ForEach(g.ObjVar("BusyVehicles", list), GO, vehicle =>
                     g.If(g.ObjVarOf(vehicle, "Busy", typeof(bool)), () => Trigger(g, vehicle, "fw_step")));
             });
+            // ---- the How To Fly board's switch for the advanced controls (each player's own; FlightGraphsHands.cs) ----
+            g.On(g.Platform("OnClick", ("banterPlayerEvents", g.ObjVar("AdvancedButton", GO))), _ =>
+            {
+                var on = g.SetObjVar("AdvancedControls", g.Not(g.ObjVar("AdvancedControls", typeof(bool))), null, typeof(bool));
+                g.Set(typeof(TMPro.TMP_Text), "text", g.ObjVar("AdvancedLabel", typeof(TMPro.TMP_Text)),
+                    g.Select(on, FleetParts.AdvancedOn, FleetParts.AdvancedOff, typeof(string)));
+                g.If(on, () =>
+                {
+                    foreach (var hand in new[] { "LeftHand", "RightHand" })
+                        g.PlatformDo("AttachToPlayer", ("Object", g.Get(TF, "gameObject", g.ObjVar(hand, TF))));
+                    g.PlatformDo("AddToastMessage", ("Message", "Advanced controls on: grip the stick and throttle, thumbsticks pick from the dials, triggers work them"));
+                }, () => g.PlatformDo("AddToastMessage", ("Message", "Advanced controls off: the thumbsticks fly again")));
+            });
+            // ---- after the app has moved the hand objects to the hands this frame: the vehicle the player flies reads them ----
+            g.On(new LateUpdate(), _ =>
+                g.If(g.And(g.ObjVar("HasPilotVehicle", typeof(bool)), g.ObjVar("AdvancedControls", typeof(bool))), () =>
+                    Trigger(g, g.ObjVar("PilotVehicle", GO), "fw_hands")));
             g.On(g.Platform("OnJsReturnValue", ("Return ID", "fw_doze")), e =>
                 g.SetObjVar("DozeOn", g.Greater(g.PlatformValue("ParseStringInvariant", "float", typeof(float),
                     ("string", g.EventOut(e, "Data", typeof(string)))), 0.5f)));
@@ -1403,8 +1450,10 @@ namespace FlightWorld.FlightGraphs
             var mass = g.Keep(g.Get(RB, "mass"));
 
             // -- pilot inputs: keys and sticks move the virtual stick at a fixed rate; throttle is a lever --
+            // (a stick held in the hand follows the hand, as Sacc's does: the slew only stands in for a thumbstick's travel)
+            var slew = g.Keep(dt * g.Select(g.B("Advanced"), 60f, 5f));
             Val Slew(string state, string key, string stick) =>
-                g.SetGraphVar(state, g.MoveTowards(g.F(state), g.Clamp(g.F(key) + g.F(stick), -1f, 1f), dt * 5f));
+                g.SetGraphVar(state, g.MoveTowards(g.F(state), g.Clamp(g.F(key) + g.F(stick), -1f, 1f), slew));
             var inPitch = Slew("InPitch", "KeyPitch", "StickPitch");
             var inYaw = Slew("InYaw", "KeyYaw", "StickYaw");
             var inRoll = Slew("InRoll", "KeyRoll", "StickRoll");
@@ -1544,9 +1593,9 @@ namespace FlightWorld.FlightGraphs
             //    upward thruster, so the vehicle is flown like a helicopter. --
             g.If(g.ObjVar("HasThrusters", typeof(bool)), () =>
             {
-                var sideways = g.Keep(g.Clamp(g.F("KeyThrustX") + g.F("StickThrustX"), -1f, 1f));
-                var upward = g.Keep(g.Clamp(g.F("KeyThrustY") + g.Select(g.ObjVar("ThrottleIsUpThrust", typeof(bool)), throttle, 0f), -1f, 1f));
-                var ahead = g.Keep(g.Clamp(g.F("KeyThrustZ") + g.F("StickThrustZ"), -1f, 1f));
+                var sideways = g.Keep(g.Clamp(g.F("KeyThrustX") + g.F("StickThrustX") + g.F("RightThrustX"), -1f, 1f));
+                var upward = g.Keep(g.Clamp(g.F("KeyThrustY") + g.F("StickThrustY") + g.Select(g.ObjVar("ThrottleIsUpThrust", typeof(bool)), throttle, 0f), -1f, 1f));
+                var ahead = g.Keep(g.Clamp(g.F("KeyThrustZ") + g.F("StickThrustZ") + g.F("RightThrustZ"), -1f, 1f));
                 Val Push(Val input, string axis) => input * g.Select(g.Greater(input, 0f), g.P("Thrust" + axis + "Positive"), g.P("Thrust" + axis + "Negative"));
                 g.Do(RB, "AddRelativeForce", new[] { V3T, typeof(ForceMode) }, null,
                     g.V3(Push(sideways, "X"), Push(upward, "Y"), Push(ahead, "Z")), ForceMode.Acceleration);

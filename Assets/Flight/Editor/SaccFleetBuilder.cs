@@ -65,6 +65,9 @@ namespace FlightWorld.FlightGraphs
             /// <summary>Always drawn at full detail: no coarser mesh levels at a distance, and the graph's distance bias
             /// leaves it alone (the balloon: a big shape seen from far away, and only about 13,000 triangles).</summary>
             public bool fullDetail;
+            /// <summary>The right thumbstick works its thrusters, ahead / astern and sideways, instead of pitch and roll (a
+            /// balloon has nothing to pitch or roll with), whichever controls the pilot uses.</summary>
+            public bool rightStickThrusts;
             /// <summary>Where everybody gets out: metres to the right of and ahead of the vehicle's centre of mass, on the ground
             /// (its seats are metres above it).</summary>
             public Vector2? exitAt;
@@ -105,7 +108,7 @@ namespace FlightWorld.FlightGraphs
             },
             // The drone has one chair; a passenger rides on the cargo pack strapped on behind it.
             ["SD-1"] = new Special { extraSeats = new[] { new Vector3(0f, 0.25f, -0.9f) } },
-            ["Balloon"] = new Special { fullDetail = true },
+            ["Balloon"] = new Special { fullDetail = true, rightStickThrusts = true },
         };
 
         /// <summary>Row number for a vehicle that is moored on the nearest open water instead of parked on the apron.</summary>
@@ -115,12 +118,13 @@ namespace FlightWorld.FlightGraphs
         // row starts on the runway side (the runway's edge is 60 m that way, so rows grow away from it).
         const float FirstRowAhead = 26f, RowSpacing = 46f, RowStartsAt = -45f, GapBetweenVehicles = 5f;
 
-        // Parts of a prefab that are not carried over yet: weapons and their dial menus, VRChat sync and camera
-        // helpers. Removed by name wherever they sit in the vehicle.
+        // Parts of a prefab that are not carried over yet: weapons, the dial functions' scripts (the graph does the
+        // ones that are ported; their display is kept for the advanced controls), VRChat sync and camera helpers.
+        // Removed by name wherever they sit in the vehicle.
         static readonly HashSet<string> Dropped = new HashSet<string>
         {
             "DialFunctions", "AAMs", "AGMs", "Bombs", "SyncScript", "CameraPositions", "WaterTrigger", "AAMTarget",
-            "StickDisplayCanvas", "AtGScreen", "AtGCam", "ResupplyTrigger",
+            "AtGScreen", "AtGCam", "ResupplyTrigger",
             // The airliner's jet blast: invisible particles that push whatever they hit (collider force 5000) for 100 m
             // behind each engine, and ahead of it for reverse thrust. Its engine script ran them by thrust; left
             // running they threw players and anything round along two lines across the apron.
@@ -334,6 +338,10 @@ namespace FlightWorld.FlightGraphs
             Vector2 Pair(string field) => thrusters != null && thrusters.GetType().GetField(field)?.GetValue(thrusters) is Vector2 pair ? pair : Vector2.zero;
             Vector2 thrustX = Pair("ThreeDThrottleStrengthX"), thrustY = Pair("ThreeDThrottleStrengthY"), thrustZ = Pair("ThreeDThrottleStrengthZ");
             bool hasCanopy = StandIn("DFUNC_Canopy") != null;
+            var dialLeft = ReadDial(entity, true);
+            var dialRight = ReadDial(entity, false);
+            var maxJoy = flight.GetType().GetField("MaxJoyAngles")?.GetValue(flight) is Vector3 joy && joy.x > 0f && joy.y > 0f && joy.z > 0f
+                ? joy : new Vector3(45f, 45f, 45f);
             var gauges = StandIn("SaccGaugeController");
             var dialAnimators = new AotList();
             var horizonBalls = new AotList();
@@ -791,6 +799,52 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("SlatAngleOut", slatAngleOut);
             variables.declarations.Set("FlapLeverOut", flapLeverOut);
             variables.declarations.Set("ThrottleLeverIdle", leverIdle);
+            // ---- Sacc's VR controls, for players who switch on the board's advanced controls -------------------
+            // (SaccAirVehicle's grabbed stick and throttle, SaccEntity's two dials of functions and their display)
+            variables.declarations.Set("LeftHand", FleetParts.HandTracker(true));
+            variables.declarations.Set("RightHand", FleetParts.HandTracker(false));
+            variables.declarations.Set("MaxJoyX", maxJoy.x);
+            variables.declarations.Set("MaxJoyY", maxJoy.y);
+            variables.declarations.Set("MaxJoyZ", maxJoy.z);
+            variables.declarations.Set("DialSensitivity", dialLeft.sensitivity);
+            var gearLit = new AotList();
+            var flapsLit = new AotList();
+            foreach (var (side, dial) in new[] { ("L", dialLeft), ("R", dialRight) })
+            {
+                var d = variables.declarations;
+                d.Set(side + "DialCount", (float)dial.count);
+                d.Set(side + "DialDegrees", dial.degrees);
+                d.Set(side + "DialCheck", dial.check);
+                var valid = new AotList();
+                foreach (var usable in dial.valid) valid.Add(usable);
+                if (valid.Count == 0) valid.Add(false);
+                d.Set(side + "DialValid", valid);
+                d.Set(side + "GearSlot", dial.gear);
+                d.Set(side + "FlapsSlot", dial.flaps);
+                d.Set(side + "BrakeSlot", dial.brake);
+                d.Set(side + "VtolSlot", dial.vtol);
+                d.Set(side + "ThrustSlot", dial.thrust);
+                var highlighter = Spare(dial.highlighter, side + "Highlighter");
+                highlighter.localEulerAngles = new Vector3(0f, 180f, 0f);       // nothing picked (as SaccEntity shows it)
+                d.Set(side + "Highlighter", highlighter);
+                // the lit marks on the display: gear down and flaps out are ported; the rest stay dark
+                foreach (var lit in dial.gearOn.Where(o => o)) { lit.SetActive(true); gearLit.Add(lit); }
+                foreach (var lit in dial.flapsOn.Where(o => o)) { lit.SetActive(flapsDefaultOn); flapsLit.Add(lit); }
+                foreach (var lit in dial.otherOn.Where(o => o)) lit.SetActive(false);
+            }
+            variables.declarations.Set("GearLit", gearLit);
+            variables.declarations.Set("FlapsLit", flapsLit);
+            variables.declarations.Set("ThrustersOnDial", dialLeft.thrust >= 0f || dialRight.thrust >= 0f);
+            variables.declarations.Set("RightStickThrusts", special.rightStickThrusts && hasThrusters);
+            if (special.rightStickThrusts && !hasThrusters) report.AppendLine($"WARNING {name}: right stick should work its thrusters, but it has none");
+            // The pilot's two dial displays are shown only with the advanced controls on; copies for other seats never.
+            var dialDisplays = new AotList();
+            foreach (var display in root.GetComponentsInChildren<Transform>(true).Where(t => t.name.StartsWith("StickDisplay") && t.name != "StickDisplayCanvas"))
+            {
+                if (display.name == "StickDisplayL" || display.name == "StickDisplayR") dialDisplays.Add(display.gameObject);
+                display.gameObject.SetActive(false);
+            }
+            variables.declarations.Set("DialDisplays", dialDisplays);
             // parts that are drawn only for players close by or aboard
             var nearList = new AotList();
             foreach (var part in root.GetComponentsInChildren<Transform>(true)) if (special.nearOnly.Contains(part.name)) nearList.Add(part.gameObject);
@@ -939,8 +993,85 @@ namespace FlightWorld.FlightGraphs
                           $"{(engineThrust > 0f ? $", {engines.Count} engine(s) of {engineThrust / engines.Count / 1000f:F0} kN" : "")}" +
                           $"{(special.absoluteForces ? ", tuning converted from forces" : "")}{(travellingLevers ? ", gear and flaps travel by position" : "")}" +
                           $"{(attitudeDisplays.Count + navigationDisplays.Count + engineDisplays.Count > 0 ? $", flight displays ({attitudeDisplays.Count} attitude, {navigationDisplays.Count} navigation, {engineDisplays.Count} engine)" : "")}" +
-                          $"{(nearList.Count > 0 ? $", {nearList.Count} part(s) drawn only within {special.nearWithin:F0} m" : "")}",
+                          $"{(nearList.Count > 0 ? $", {nearList.Count} part(s) drawn only within {special.nearWithin:F0} m" : "")}" +
+                          $", dials {dialLeft.Describe()} / {dialRight.Describe()} ({dialDisplays.Count} display(s))",
             };
+        }
+
+        /// <summary>
+        /// One of SaccEntity's two dials: the functions a thumbstick picks from (in order round the dial), and which of
+        /// them the graph works. Slots are positions on the dial, -1 where the dial has no such function.
+        /// </summary>
+        sealed class Dial
+        {
+            public int count;
+            public bool[] valid = new bool[0];
+            public Vector2 check;
+            public float degrees, sensitivity = 0.7f;
+            public Transform highlighter;
+            public float gear = -1f, flaps = -1f, brake = -1f, vtol = -1f, thrust = -1f;
+            public readonly List<GameObject> gearOn = new List<GameObject>(), flapsOn = new List<GameObject>(), otherOn = new List<GameObject>();
+            public string Describe() => count == 0 ? "none" : $"{count}" +
+                (gear >= 0f ? " gear" : "") + (flaps >= 0f ? " flaps" : "") + (brake >= 0f ? " brake" : "") + (vtol >= 0f ? " tilt" : "") + (thrust >= 0f ? " thrusters" : "");
+        }
+
+        /// <summary>Read a dial as SaccEntity sets it up when it starts (its selection maths included).</summary>
+        static Dial ReadDial(SaccEntity entity, bool left)
+        {
+            var functions = (left ? entity.Dial_Functions_L : entity.Dial_Functions_R) ?? new MonoBehaviour[0];
+            int n = functions.Length;
+            var dial = new Dial
+            {
+                count = n,
+                valid = functions.Select(f => f != null).ToArray(),
+                highlighter = left ? entity.LStickDisplayHighlighter : entity.RStickDisplayHighlighter,
+                sensitivity = entity.DialSensitivity > 0f ? entity.DialSensitivity : 0.7f,
+                degrees = 360f / Mathf.Max(n, 1),
+            };
+            // straight up is the middle of a function, unless the dial says its first function starts there
+            if (left ? entity.LeftDialDivideStraightUp : entity.RightDialDivideStraightUp) dial.check = new Vector2(0f, -1f);
+            else
+            {
+                var angle = Quaternion.Euler(0f, -((360 / Mathf.Max(n, 1)) / 2), 0f) * new Vector3(0f, 0f, -1f);   // (integer maths, as SaccEntity's)
+                dial.check = new Vector2(angle.x, angle.z);
+            }
+            for (int i = 0; i < n; i++)
+            {
+                var function = functions[i];
+                if (function == null) continue;
+                var lit = new List<GameObject>();
+                if (function.GetType().GetField("Dial_Funcon")?.GetValue(function) is GameObject one && one) lit.Add(one);
+                if (function.GetType().GetField("Dial_Funcon_Array")?.GetValue(function) is GameObject[] many) lit.AddRange(many.Where(o => o));
+                switch (function.GetType().Name)
+                {
+                    case "DFUNC_Gear":
+                        if (dial.gear < 0f) dial.gear = i;
+                        dial.gearOn.AddRange(lit);
+                        break;
+                    case "DFUNC_Flaps":
+                    case "DFUNC_a320_FlapController":
+                        if (dial.flaps < 0f) dial.flaps = i;
+                        dial.flapsOn.AddRange(lit);
+                        break;
+                    case "DFUNC_Brake":
+                    case "DFUNC_a320_Brake":
+                        if (dial.brake < 0f) dial.brake = i;
+                        dial.otherOn.AddRange(lit);
+                        break;
+                    case "DFUNC_VTOLAngle":
+                        if (dial.vtol < 0f) dial.vtol = i;
+                        dial.otherOn.AddRange(lit);
+                        break;
+                    case "SAV_ThreeDThrust":
+                        if (dial.thrust < 0f) dial.thrust = i;
+                        dial.otherOn.AddRange(lit);
+                        break;
+                    default:
+                        dial.otherOn.AddRange(lit);
+                        break;
+                }
+            }
+            return dial;
         }
 
         /// <summary>A blue sign that takes whoever clicks it to `destination` (the TeleportSign graph).</summary>

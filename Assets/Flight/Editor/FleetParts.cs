@@ -18,23 +18,29 @@ namespace FlightWorld.FlightGraphs
         const string HowToFly =
             "<b>Getting in and out</b>\n" +
             "Point at a pilot seat and pull the trigger (or click it). Jump to get out.\n" +
-            "Passengers can take the other seats once a pilot is aboard.\n\n" +
+            "Passengers can take any of the other seats.\n\n" +
             "<b>VR controllers</b>\n" +
             "Left stick: up / down = throttle, left / right = rudder (it steers on the ground)\n" +
             "Right stick: back = nose up, forward = nose down, left / right = roll\n" +
             "Left trigger: brakes    Left grip + left stick: tilt the thrust (SC-1, SF-2),\n" +
             "or fire the thrusters ahead / astern / sideways (GRVR-1, SX-TR3)\n" +
             "Click the right stick: landing gear    Click the left stick: flaps\n\n" +
+            "<b>Advanced controls</b> (the button beside this board, VR only)\n" +
+            "Hold the right grip and move your hand to work the cockpit's stick: tilt to pitch and roll, twist to yaw.\n" +
+            "Double-tap the grip to keep hold of it. Hold the left grip and push the throttle forward or pull it back\n" +
+            "(helicopters: raise or lower it). A thumbstick picks a function on its dial display; that side's trigger\n" +
+            "works it: gear and flaps toggle, brakes while held, thrust tilt and thrusters by moving your hand.\n\n" +
             "<b>Keyboard</b>\n" +
             "Shift / Ctrl = throttle    S / W = nose up / down    A / D = roll\n" +
             "Q / E = rudder    B = brakes    G = gear    V = flaps\n" +
             "R / F = tilt the thrust up / forward    I K J L U O = thrusters (GRVR-1, SX-TR3)\n\n" +
             "<b>Taking off</b>\n" +
             "Aeroplanes: full throttle, keep straight, ease the nose up as the speed builds.\n" +
-            "Helicopters, the drone and the balloon: raise the throttle and they lift.\n\n" +
+            "Helicopters, the drone and the balloon: raise the throttle and they lift.\n" +
+            "The balloon: the right stick (or I K J L) pushes it ahead, astern and sideways.\n\n" +
             "<b>The airliner</b>\n" +
             "The blue AIRLINER sign takes you to its nose. Point up at the captain's window to take the left seat;\n" +
-            "passengers point at the front of the cabin once there is a captain. Flaps out for take-off and landing.\n\n" +
+            "passengers point at the front of the cabin. Flaps out for take-off and landing.\n\n" +
             "Crash, and the vehicle comes back to its spot after a few seconds.\n" +
             "A red RESET sign brings back a vehicle nobody is in.";
 
@@ -81,12 +87,54 @@ namespace FlightWorld.FlightGraphs
         /// <summary>Two boards just ahead of the arrival point: how to fly on the left, credits on the right.</summary>
         public static void BuildBoards(GameObject parent, Vector3 origin, Quaternion facing, float ground)
         {
-            Board(parent, "How To Fly", "HOW TO FLY", HowToFly, origin, origin + facing * new Vector3(-4.3f, 0f, 7.5f), ground, 0.125f);
+            var howTo = Board(parent, "How To Fly", "HOW TO FLY", HowToFly, origin, origin + facing * new Vector3(-4.3f, 0f, 7.5f), ground, 0.125f);
             Board(parent, "Credits", "CREDITS", Credits, origin, origin + facing * new Vector3(4.3f, 0f, 7.5f), ground, 0.125f);
             Board(parent, "Cars And Boats", "CARS, TANK, BOAT", HowToDrive, origin, origin + facing * new Vector3(-12.6f, 0f, 5.2f), ground, 0.125f);
+            AdvancedButton(howTo);
         }
 
-        static void Board(GameObject parent, string name, string title, string body, Vector3 viewer, Vector3 position, float ground, float bodySize)
+        public const string AdvancedOff = "ADVANCED\nCONTROLS\n<color=#ff9a7a>OFF</color>", AdvancedOn = "ADVANCED\nCONTROLS\n<color=#7dffa0>ON</color>";
+
+        /// <summary>
+        /// The switch for Sacc's own VR controls (the fleet watch's graph flips it): a panel standing just to the
+        /// right of the How To Fly board. Each player sets it for themselves; it is not shared and starts off.
+        /// </summary>
+        static void AdvancedButton(GameObject board)
+        {
+            var button = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            button.name = "Advanced Controls Button";
+            button.transform.SetParent(board.transform, false);
+            button.transform.localPosition = new Vector3(2.95f, 1.55f, 0.04f);
+            button.transform.localScale = new Vector3(1.2f, 0.8f, 0.08f);
+            button.GetComponent<MeshRenderer>().sharedMaterial = FlatMaterial("AdvancedButton", new Color(0.16f, 0.30f, 0.46f));
+            button.layer = 5;                                            // UI layer so it can be clicked
+            // (close by only: from a cockpit parked nearby the right trigger is also the pointer's click)
+            var range = button.AddComponent(GraphTypes.Find("BS.BSPointerRange"));
+            var so = new SerializedObject(range);
+            so.FindProperty("distance").floatValue = 6f;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            var post = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            post.name = "Leg";
+            post.transform.SetParent(board.transform, false);
+            post.transform.localPosition = new Vector3(2.95f, 0.575f, 0.06f);
+            post.transform.localScale = new Vector3(0.08f, 1.15f, 0.08f);
+            post.GetComponent<MeshRenderer>().sharedMaterial = FlatMaterial("SignLeg", new Color(0.32f, 0.33f, 0.36f));
+            var label = Child(board, "Advanced Controls Label").AddComponent<TMPro.TextMeshPro>();
+            label.transform.localPosition = new Vector3(2.95f, 1.55f, -0.01f);
+            label.rectTransform.sizeDelta = new Vector2(1.1f, 0.72f);
+            label.fontSize = 1.5f;
+            label.fontStyle = TMPro.FontStyles.Bold;
+            label.alignment = TMPro.TextAlignmentOptions.Center;
+            label.richText = true;
+            label.color = Color.white;
+            label.text = AdvancedOff;
+            var watch = Watch().GetComponent<Unity.VisualScripting.Variables>().declarations;
+            watch.Set("AdvancedButton", button);
+            watch.Set("AdvancedLabel", label);
+            EditorUtility.SetDirty(Watch());
+        }
+
+        static GameObject Board(GameObject parent, string name, string title, string body, Vector3 viewer, Vector3 position, float ground, float bodySize)
         {
             const float width = 4.4f, height = 3.3f, bottom = 0.5f;
             position.y = ground;
@@ -133,6 +181,7 @@ namespace FlightWorld.FlightGraphs
             text.alignment = TMPro.TextAlignmentOptions.TopLeft;
             text.color = new Color(0.93f, 0.95f, 0.98f);
             text.text = body;
+            return board;
         }
 
         /// <summary>
@@ -176,6 +225,35 @@ namespace FlightWorld.FlightGraphs
             if (!variables.declarations.IsDefined("TickCount")) variables.declarations.Set("TickCount", 1f);
             variables.declarations.Set("PilotVehicle", watch);          // (any object: it only counts while HasPilotVehicle is set)
             variables.declarations.Set("HasPilotVehicle", false);
+            variables.declarations.Set("AdvancedControls", false);      // the board's button: Sacc's VR controls, for this player
+            if (!variables.declarations.IsDefined("AdvancedButton")) variables.declarations.Set("AdvancedButton", watch);
+            if (!variables.declarations.IsDefined("AdvancedLabel")) variables.declarations.Set("AdvancedLabel", null);
+            // Where the local player's hands are. The app attaches an object to a hand bone by following the physics
+            // hand with a parent constraint (BSAttachedObject, attached to "me" by the graph when the controls are
+            // switched on); nothing else in a graph can see the controllers' pose.
+            foreach (var (side, bone, id) in new[] { ("Left", 8, "fw-hand-left"), ("Right", 12, "fw-hand-right") })
+            {
+                var t = watch.transform.Find(side + "HandTracker");
+                var hand = t != null ? t.gameObject : Child(watch, side + "HandTracker");
+                var attachType = GraphTypes.Find("BS.BSAttachedObject");
+                var attached = hand.GetComponent(attachType) ?? hand.AddComponent(attachType);
+                var so = new SerializedObject(attached);
+                so.FindProperty("uid").stringValue = "me";
+                so.FindProperty("avatarAttachmentType").intValue = 0;   // AttachToAvatar: the object goes on the player
+                so.FindProperty("attachmentType").intValue = 1;         // NonPhysics
+                so.FindProperty("avatarAttachmentPoint").intValue = bone; // LEFTARM_HAND / RIGHTARM_HAND
+                so.FindProperty("autoAttach").boolValue = false;
+                so.FindProperty("autoSync").boolValue = false;          // nobody else needs it
+                so.ApplyModifiedPropertiesWithoutUndo();
+                var objectId = hand.GetComponent(GraphTypes.Find("BS.BSObjectId"));
+                if (objectId != null)
+                {
+                    var ids = new SerializedObject(objectId);
+                    ids.FindProperty("Id").stringValue = id;
+                    ids.ApplyModifiedPropertiesWithoutUndo();
+                }
+                variables.declarations.Set(side + "Hand", hand.transform);
+            }
             var graph = AssetDatabase.LoadAssetAtPath<Unity.VisualScripting.ScriptGraphAsset>(FlightGraphs.WatchPath);
             if (graph == null) throw new Exception("fleet watch graph missing: run FlightWorld/Flight/Regenerate Flight Graphs");
             if (!watch.TryGetComponent<Unity.VisualScripting.ScriptMachine>(out var machine)) machine = watch.AddComponent<Unity.VisualScripting.ScriptMachine>();
@@ -183,6 +261,10 @@ namespace FlightWorld.FlightGraphs
             EditorUtility.SetDirty(watch);
             return watch;
         }
+
+        /// <summary>The object that follows the local player's left or right hand (see Watch).</summary>
+        public static Transform HandTracker(bool left) =>
+            (Transform)Watch().GetComponent<Unity.VisualScripting.Variables>().declarations.Get(left ? "LeftHand" : "RightHand");
 
         /// <summary>What a vehicle's graph and the fleet watch share about dozing: set on every vehicle as it is built.</summary>
         public static void WatchVariables(Unity.VisualScripting.Variables variables, Unity.VisualScripting.ScriptMachine machine, Bounds bounds,
