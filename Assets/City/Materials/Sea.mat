@@ -42,6 +42,6 @@ Material:
     - _SkyColor: {r: 0.5, g: 0.7, b: 0.95, a: 1}
     - _SunColor: {r: 1, g: 0.95, b: 0.85, a: 1}
     - _SunDir: {r: -0.53348464, g: 0.7660027, b: -0.35865593, a: 0}
-    - _WorldRect: {r: -22400, g: -16000, b: 0.000025, a: 0.00003125}
+    - _WorldRect: {r: -37204.727, g: -23042.076, b: 0.000025, a: 0.00003125}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

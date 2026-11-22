@@ -167,8 +167,10 @@ namespace FlightWorld.FlightGraphs
                         g.SetGraphVar("GripHandbrake", held)));
 
             // ---- taking the driver's seat: clicking it seats the player (the seat component does that) ----
+            // (Not from the driver already in it: see SeatClicks in the aircraft graph.)
             g.On(g.Platform("OnClick", ("banterPlayerEvents", g.ObjVar("PilotSeat", GO))), _ =>
-                g.If(g.And(g.Not(g.B("Dead")), g.Not(g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat)))), () =>
+                g.If(g.And(g.And(g.Not(g.B("Dead")), g.Not(g.B("Driving"))),
+                           g.Not(g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat)))), () =>
                 {
                     Wake(g);
                     g.SetGraphVar("Driving", true);
@@ -333,10 +335,11 @@ namespace FlightWorld.FlightGraphs
                     // the other seats open only once there is a driver
                     if (LockOtherSeatsUntilPilot)
                     {
-                        var hasDriver = g.Keep(g.Or(g.B("Driving"),
+                        // (and never for the driver: a seat clicked on the move re-joints the player to the car)
+                        var open = g.Keep(g.And(g.Not(g.B("Driving")),
                             g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat))));
                         g.ForEach(g.ObjVar("PassengerSeatColliders", List), typeof(Collider), seatCollider =>
-                            g.Set(typeof(Collider), "enabled", seatCollider, hasDriver));
+                            g.Set(typeof(Collider), "enabled", seatCollider, open));
                     }
 
                     // Detail by distance (as in the aircraft graph). The meshes carry Unity's automatic Mesh LODs,
@@ -758,6 +761,11 @@ namespace FlightWorld.FlightGraphs
             AnimBool(g, "piloting", aboard);
             AnimBool(g, "insidevehicle", aboard);
             AnimBool(g, "occupied", aboard);
+            // the driver cannot click this car's seats (passenger seats: the twice-a-second guard)
+            g.Set(typeof(Collider), "enabled", g.ObjVar("PilotSeatCollider", typeof(Collider)), !aboard);
+            if (aboard)
+                g.ForEach(g.ObjVar("PassengerSeatColliders", List), typeof(Collider), seatCollider =>
+                    g.Set(typeof(Collider), "enabled", seatCollider, false));
             if (!aboard)
             {
                 AnimFloat(g, "steering", 0.5f);

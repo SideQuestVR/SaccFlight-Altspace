@@ -644,6 +644,7 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("GearText", SpareText(gearText, "NoGearText"));
             variables.declarations.Set("PilotSeat", pilotSeat);
             variables.declarations.Set("PilotSeatComponent", pilotSeat.GetComponent(GraphTypes.Find("BS.BSSeat")));
+            variables.declarations.Set("PilotSeatCollider", pilotSeat.GetComponent<Collider>());
             variables.declarations.Set("EyePoint", pilotEye);
             variables.declarations.Set("Seats", seatList);
             variables.declarations.Set("PassengerSeatColliders", passengerSeatColliders);

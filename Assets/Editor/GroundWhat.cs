@@ -14,7 +14,7 @@ namespace FlightWorld.EditorTools
         {
             var text = new StringBuilder();
             Physics.SyncTransforms();
-            foreach (var at in new[] { new Vector3(14767.33f, 60f, 7217.53f), new Vector3(14772.53f, 60f, 7226.07f), new Vector3(14804.72f, 60f, 7042.08f) })
+            foreach (var at in new[] { new Vector3(-37.39f, 60f, 175.45f), new Vector3(-32.19f, 60f, 183.99f), new Vector3(0.00f, 60f, 0.00f) })
             {
                 text.AppendLine($"under ({at.x:F2}, {at.z:F2}):");
                 foreach (var hit in Physics.RaycastAll(at, Vector3.down, 200f, ~0, QueryTriggerInteraction.Collide).OrderBy(h => h.distance))

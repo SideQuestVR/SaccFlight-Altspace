@@ -19,7 +19,7 @@ import time
 import mcp_client
 from harness import Harness
 
-ARRIVAL = (14804.7, 7042.1)             # the world's arrival point (x, z)
+ARRIVAL = (0.0, 0.0)                       # the world's arrival point (x, z)
 ROTATE = float(sys.argv[1]) if len(sys.argv) > 1 else 80.0
 CLIMB_SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 7.0
 PREFIX = sys.argv[3] if len(sys.argv) > 3 else "stick"

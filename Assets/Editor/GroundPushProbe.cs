@@ -60,14 +60,14 @@ namespace FlightWorld.EditorTools
                 if (step == 0 && t > 5)
                 {
                     // across the apron 40 m ahead of the A320's exit point, 0.5 m apart, as first measured ...
-                    var origin = new Vector3(14801.25f, 1.6f, 7196.32f);
+                    var origin = new Vector3(-3.47f, 1.6f, 154.24f);
                     float yaw = 301.3f * Mathf.Deg2Rad;
                     Vector3 ahead = new Vector3(Mathf.Sin(yaw), 0f, Mathf.Cos(yaw)), right = new Vector3(ahead.z, 0f, -ahead.x);
                     for (int i = -40; i <= 40; i++) Drop(origin + ahead * 40f + right * (i * 0.5f), $"apron row, {i * 0.5f:+0.0;-0.0} m");
                     // ... along the line itself ...
                     for (int i = -3; i <= 3; i++) Drop(origin + ahead * (i * 40f) + right * 0.5f, $"along the line, {i * 40:+0;-0} m");
                     // ... and a coarse grid over the arrival area and the rows of vehicles
-                    var arrival = new Vector3(14804.72f, 1.6f, 7042.08f);
+                    var arrival = new Vector3(0.00f, 1.6f, 0.00f);
                     for (int a = -2; a <= 6; a++) for (int r = -3; r <= 6; r++) Drop(arrival + ahead * (a * 25f) + right * (r * 25f + 3.7f), $"grid {a * 25:+0;-0} ahead {r * 25:+0;-0} right");
                     step = 1;
                 }

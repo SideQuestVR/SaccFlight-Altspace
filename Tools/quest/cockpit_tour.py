@@ -16,7 +16,7 @@ from pathlib import Path
 import mcp_client
 from harness import Harness
 
-ARRIVAL = (14804.7, 1.6, 7042.1)
+ARRIVAL = (0.0, 1.6, 0.0)
 seats = Path(__file__).resolve().parents[2] / "Logs" / "seat_positions.txt"
 names = sys.argv[1:] or sorted({line.split("|")[0].strip() for line in seats.read_text().splitlines()
                                 if "| PilotSeat |" in line})

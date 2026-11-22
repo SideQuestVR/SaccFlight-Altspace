@@ -243,9 +243,12 @@ namespace FlightWorld.FlightGraphs
                     g.SetGraphVar("TriggerBrake", g.EventOut(e, "Trigger Value", typeof(float)))));
 
             // ---- taking the pilot's seat: clicking it seats the player (the seat component does that) -------
-            // (A click on a seat somebody else is in does not seat you, so it must not make you the pilot either.)
+            // (A click on a seat somebody else is in does not seat you, so it must not make you the pilot either.
+            // Nor does one from the pilot already in it: the seat's click area is off while they are aboard, see
+            // SeatClicks, but should a click arrive anyway it must not restart anything in flight.)
             g.On(g.Platform("OnClick", ("banterPlayerEvents", g.ObjVar("PilotSeat", typeof(GameObject)))), _ =>
-                g.If(g.And(g.Not(g.B("Dead")), g.Not(g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat)))), () =>
+                g.If(g.And(g.And(g.Not(g.B("Dead")), g.Not(g.B("Piloting"))),
+                           g.Not(g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat)))), () =>
                 {
                     g.SetGraphVar("Piloting", true);
                     g.If(g.ObjVar("IsBoat", typeof(bool)), () => g.SetObjVar("Busy", true), () => Fly(g, true));
@@ -454,8 +457,7 @@ namespace FlightWorld.FlightGraphs
                         g.If(g.Or(g.And(hasPilot, g.Not(g.B("SeatsOpen"))), g.And(g.Not(hasPilot), g.B("SeatsOpen"))), () =>
                         {
                             g.SetGraphVar("SeatsOpen", hasPilot);
-                            g.ForEach(g.ObjVar("PassengerSeatColliders", typeof(System.Collections.IEnumerable)), typeof(Collider), seatCollider =>
-                                g.Set(typeof(Collider), "enabled", seatCollider, hasPilot));
+                            SeatClicks(g);
                         });
                     }
 
@@ -997,6 +999,24 @@ namespace FlightWorld.FlightGraphs
             g.ForEach(g.ObjVar("SharedInVehicleObjects", typeof(System.Collections.IEnumerable)), typeof(GameObject), item =>
                 g.Do(typeof(GameObject), "SetActive", new[] { typeof(bool) }, item, aboard));
             AnimBool(g, "localpassenger", aboard);
+            SeatClicks(g);
+        }
+
+        /// <summary>
+        /// Which of this vehicle's seats the local player can click. None while they are aboard it (piloting or
+        /// riding): the right trigger is also the pointer's click, and the pilot seat's click area is around the
+        /// pilot and the passenger seats beside them, so a pull of the trigger in flight re-sat the player. The app
+        /// then joints their 76 kg body to the moving aircraft afresh, the aircraft takes the jolt, and the G it
+        /// reads from it wrecked the airframe in mid-air. From outside: the pilot seat, and the others once there is
+        /// a pilot (SeatsOpen). To change seats, get out first.
+        /// </summary>
+        static void SeatClicks(GraphWriter g)
+        {
+            var outside = g.Keep(g.Not(g.Or(g.B("Piloting"), g.B("Riding"))));
+            g.Set(typeof(Collider), "enabled", g.ObjVar("PilotSeatCollider", typeof(Collider)), outside);
+            var open = g.Keep(g.And(outside, g.B("SeatsOpen")));
+            g.ForEach(g.ObjVar("PassengerSeatColliders", typeof(System.Collections.IEnumerable)), typeof(Collider), seatCollider =>
+                g.Set(typeof(Collider), "enabled", seatCollider, open));
         }
 
         static void Cockpit(GraphWriter g, bool aboard)
@@ -1006,6 +1026,7 @@ namespace FlightWorld.FlightGraphs
             AnimBool(g, "localpilot", aboard);
             AnimBool(g, "occupied", aboard);
             AnimBool(g, "EngineOn", aboard);
+            SeatClicks(g);
             if (!aboard)
             {
                 TrailsOff(g);
@@ -1098,6 +1119,7 @@ namespace FlightWorld.FlightGraphs
             });
             g.SetGraphVar("Piloting", false);
             g.SetGraphVar("ResetTimer", 0f);
+            SeatClicks(g);
             Unpiloted(g);
             g.Set(RB, "linearVelocity", null, Vector3.zero);
             g.Set(RB, "angularVelocity", null, Vector3.zero);

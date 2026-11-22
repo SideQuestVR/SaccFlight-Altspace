@@ -73,12 +73,46 @@ namespace FlightWorld.CityTools
             Debug.Log("[City] " + report);
         }
 
+        /// <summary>
+        /// The arrival point beside the longest runway, in map coordinates (x east, z north, metres from the
+        /// pipeline's projection centre in the middle of the city), facing along the runway.
+        /// </summary>
+        static bool ArrivalOnMap(CityLayout layout, out Vector3 position, out Quaternion facing)
+        {
+            position = Vector3.zero;
+            facing = Quaternion.identity;
+            if (layout.runways == null || layout.runways.Length == 0) return false;
+            var runway = layout.runways.OrderByDescending(r => r.length).First();
+            var a = new Vector3(runway.ax, 0f, runway.ay);
+            var b = new Vector3(runway.bx, 0f, runway.by);
+            var along = (b - a).normalized;
+            var side = Vector3.Cross(Vector3.up, along);
+            position = a + along * 400f + side * (runway.width * 0.5f + 60f) + Vector3.up * (layout.landHeight + 0.1f);
+            facing = Quaternion.LookRotation(along);
+            return true;
+        }
+
+        /// <summary>
+        /// Where the scene's origin is on the map: under the arrival point. Unity works in single-precision
+        /// floats, which resolve about 1 mm at 15 km from the origin. The map's own centre is the middle of the
+        /// city, 15.6 km from the airfield where everyone arrives and every vehicle parks, and at that distance
+        /// physics, seat joints and the drawn positions of parked and flying vehicles all wobble by fractions of a
+        /// millimetre a frame. With the origin at the arrival point the airfield works to about 0.01 mm.
+        /// </summary>
+        public static Vector3 OriginOnMap(CityLayout layout) =>
+            ArrivalOnMap(layout, out var p, out _) ? new Vector3(p.x, 0f, p.z) : Vector3.zero;
+
+        public static CityLayout LoadLayout() => JsonUtility.FromJson<CityLayout>(File.ReadAllText(LayoutPath));
+
         static void RebuildInternal(StringBuilder report)
         {
             int reimported = CityImportSettings.EnsureAll();
-            var layout = JsonUtility.FromJson<CityLayout>(File.ReadAllText(LayoutPath));
+            var layout = LoadLayout();
             var scene = EditorSceneManager.GetActiveScene();
             report.AppendLine($"scene: {scene.path}; re-imported {reimported} assets with corrected settings");
+            // Everything below is placed in map coordinates less this, so that the arrival point is the origin.
+            var shift = -OriginOnMap(layout);
+            report.AppendLine($"scene origin at map ({-shift.x:F2}, {-shift.z:F2}): the arrival point");
 
             Directory.CreateDirectory(MatDir);
             var buildingMat = GetMaterial("Building", "FlightWorld/CityBuilding");
@@ -88,7 +122,7 @@ namespace FlightWorld.CityTools
 
             var seaMat = GetMaterial("Sea", "FlightWorld/CitySea");
             seaMat.SetTexture("_TintMap", AssetDatabase.LoadAssetAtPath<Texture2D>(CityImportSettings.WaterTintPath));
-            seaMat.SetVector("_WorldRect", new Vector4(layout.worldX0, layout.worldY0,
+            seaMat.SetVector("_WorldRect", new Vector4(layout.worldX0 + shift.x, layout.worldY0 + shift.z,
                 1f / (layout.worldX1 - layout.worldX0), 1f / (layout.worldY1 - layout.worldY0)));
             var towardSun = new Vector3(layout.sunTowardX, layout.sunTowardUp, layout.sunTowardY).normalized;
             seaMat.SetVector("_SunDir", towardSun);
@@ -128,7 +162,7 @@ namespace FlightWorld.CityTools
                 }
                 int ix = int.Parse(parts[1]), iy = int.Parse(parts[2]);
                 float size = parts[0] == "bld" ? layout.buildingTile : parts[0] == "gnd" ? layout.groundTile : layout.seaTile;
-                var origin = new Vector3(layout.worldX0 + ix * size, 0f, layout.worldY0 + iy * size);
+                var origin = new Vector3(layout.worldX0 + ix * size, 0f, layout.worldY0 + iy * size) + shift;
                 var rotation = TileRotation(meshes.Values.First(), name, report);
                 detected ??= rotation;
 
@@ -178,7 +212,7 @@ namespace FlightWorld.CityTools
             {
                 foreach (var mesh in AssetDatabase.LoadAllAssetsAtPath(path).OfType<Mesh>())
                 {
-                    var go = Tile(outerRoot, mesh.name, Vector3.zero, detected ?? Quaternion.Euler(0f, 180f, 0f));
+                    var go = Tile(outerRoot, mesh.name, shift, detected ?? Quaternion.Euler(0f, 180f, 0f));
                     bool land = mesh.name.Contains("land");
                     AddRenderer(go, mesh, land ? desertMat : seaMat);
                     if (land) go.AddComponent<MeshCollider>().sharedMesh = mesh;
@@ -186,7 +220,7 @@ namespace FlightWorld.CityTools
                 }
             }
 
-            BuildEnvironment(layout, towardSun, report);
+            BuildEnvironment(layout, towardSun, shift, report);
             AssetDatabase.SaveAssets();
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
@@ -195,7 +229,7 @@ namespace FlightWorld.CityTools
         }
 
         // ------------------------------------------------------------------------------------------
-        static void BuildEnvironment(CityLayout layout, Vector3 towardSun, StringBuilder report)
+        static void BuildEnvironment(CityLayout layout, Vector3 towardSun, Vector3 shift, StringBuilder report)
         {
             var env = new GameObject("CityEnvironment");
 
@@ -251,7 +285,7 @@ namespace FlightWorld.CityTools
             water.layer = 4; // Water
             var box = water.AddComponent<BoxCollider>();
             float span = (layout.worldX1 - layout.worldX0) + 2f * layout.outerExtent;
-            box.center = new Vector3((layout.worldX0 + layout.worldX1) * 0.5f, -25f, (layout.worldY0 + layout.worldY1) * 0.5f);
+            box.center = new Vector3((layout.worldX0 + layout.worldX1) * 0.5f, -25f, (layout.worldY0 + layout.worldY1) * 0.5f) + shift;
             box.size = new Vector3(span, 50f, span);
 
             // Platform scene settings: long view distance, and distant players updated often enough for flight.
@@ -274,23 +308,18 @@ namespace FlightWorld.CityTools
 
             // Arrival point beside the longest runway.
             var spawnType = FindType("BS.BSSpawn");
-            if (spawnType != null && layout.runways != null && layout.runways.Length > 0)
+            if (spawnType != null && ArrivalOnMap(layout, out var arrival, out var facing))
             {
                 foreach (var old in UnityEngine.Object.FindObjectsByType(spawnType, FindObjectsInactive.Include, FindObjectsSortMode.None))
                 {
                     if (((Component)old).gameObject.name == "RunwaySpawn")
                         UnityEngine.Object.DestroyImmediate(((Component)old).gameObject);
                 }
-                var runway = layout.runways.OrderByDescending(r => r.length).First();
-                var a = new Vector3(runway.ax, 0f, runway.ay);
-                var b = new Vector3(runway.bx, 0f, runway.by);
-                var along = (b - a).normalized;
-                var side = Vector3.Cross(Vector3.up, along);
                 var spawn = Child(env, "RunwaySpawn");
-                spawn.transform.position = a + along * 400f + side * (runway.width * 0.5f + 60f) + Vector3.up * (layout.landHeight + 0.1f);
-                spawn.transform.rotation = Quaternion.LookRotation(along);
+                spawn.transform.position = arrival + shift;
+                spawn.transform.rotation = facing;
                 spawn.AddComponent(spawnType);
-                report.AppendLine($"spawn at {spawn.transform.position} beside the {runway.length:F0} m runway");
+                report.AppendLine($"spawn at {spawn.transform.position} beside the longest runway");
             }
         }
 
