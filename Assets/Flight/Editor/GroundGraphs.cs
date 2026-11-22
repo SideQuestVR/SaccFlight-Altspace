@@ -55,8 +55,8 @@ namespace FlightWorld.FlightGraphs
         static Type Sync => GraphTypes.Find("BS.BSSyncedObject");
         static Type Seat => GraphTypes.Find("BS.BSSeat");
 
-        /// <summary>Same reason as in the aircraft graph: on the released app a passenger who sits first takes the vehicle.</summary>
-        const bool LockOtherSeatsUntilPilot = true;
+        /// <summary>The same switch as the aircraft graph's (see there).</summary>
+        const bool LockOtherSeatsUntilPilot = FlightGraphs.LockOtherSeatsUntilPilot;
 
         /// <summary>
         /// A departure from the original, for keys and thumbsticks (there is no 450-degree wheel to hold here).
@@ -332,15 +332,13 @@ namespace FlightWorld.FlightGraphs
                 g.If(g.Less(guardLeft, 0f), () =>
                 {
                     g.SetGraphVar("GuardTimer", 0.5f);
-                    // the other seats open only once there is a driver
-                    if (LockOtherSeatsUntilPilot)
-                    {
-                        // (and never for the driver: a seat clicked on the move re-joints the player to the car)
-                        var open = g.Keep(g.And(g.Not(g.B("Driving")),
-                            g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat))));
-                        g.ForEach(g.ObjVar("PassengerSeatColliders", List), typeof(Collider), seatCollider =>
-                            g.Set(typeof(Collider), "enabled", seatCollider, open));
-                    }
+                    // Passenger seats can be clicked by anyone but the driver (a seat clicked on the move re-joints
+                    // the player to the car); with the lock on, only once somebody else is driving.
+                    var open = g.Keep(LockOtherSeatsUntilPilot
+                        ? g.And(g.Not(g.B("Driving")), g.Get(Seat, "IsOccupiedByOther", g.ObjVar("PilotSeatComponent", Seat)))
+                        : g.Not(g.B("Driving")));
+                    g.ForEach(g.ObjVar("PassengerSeatColliders", List), typeof(Collider), seatCollider =>
+                        g.Set(typeof(Collider), "enabled", seatCollider, open));
 
                     // Detail by distance (as in the aircraft graph). The meshes carry Unity's automatic Mesh LODs,
                     // but the app only moves to a coarser level very late, so each vehicle adds its own bias:

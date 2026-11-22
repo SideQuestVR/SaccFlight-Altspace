@@ -336,17 +336,26 @@ namespace FlightWorld.FlightGraphs
             bool dead = (bool)vars.Get("Dead");
             float health = Convert.ToSingle(vars.Get("Health"));
             var model = (GameObject)Variables.Object(aircraft).Get("Model");
+            bool hasGear = Variables.Object(aircraft).IsDefined("HasGear") && (bool)Variables.Object(aircraft).Get("HasGear");
+            bool gearDown() => !(bool)vars.Get("GearUp") && Convert.ToSingle(vars.Get("GearPos")) > 0.999f;
             string State() => string.Format(culture,
-                "model {0}, constraints {1}, collisions {2}, piloting {3}, health {4:F0}, {5:F1} m from parking spot, speed {6:F1}",
+                "model {0}, constraints {1}, collisions {2}, piloting {3}, health {4:F0}, {5:F1} m from parking spot, speed {6:F1}, gear {7}",
                 model.activeSelf ? "shown" : "hidden", body.constraints, body.detectCollisions ? "on" : "off",
-                vars.Get("Piloting"), health, Vector3.Distance(body.position, startPosition), body.linearVelocity.magnitude);
+                vars.Get("Piloting"), health, Vector3.Distance(body.position, startPosition), body.linearVelocity.magnitude,
+                gearDown() ? "down" : "UP");
 
             string phase;
             if (deathTime < 0f)
             {
                 float targetPitch;
                 if (altitude < 2f && speed < rotateSpeed && healthBeforeDive < 0f) { phase = "takeoff roll"; targetPitch = 0f; }
-                else if (altitude < 150f && t < 35f && healthBeforeDive < 0f) { phase = "climb"; targetPitch = climbPitch; }
+                else if (altitude < 150f && t < 35f && healthBeforeDive < 0f)
+                {
+                    phase = "climb";
+                    targetPitch = climbPitch;
+                    // gear up, as a pilot would: the aircraft must come back with it down
+                    if (hasGear && altitude > 20f && !(bool)vars.Get("GearUp")) vars.Set("GearUp", true);
+                }
                 else { phase = "dive"; targetPitch = -40f; if (healthBeforeDive < 0f) healthBeforeDive = health; }
                 vars.Set("KeyPitch", phase == "takeoff roll" ? 0f : PitchHold(pitchDeg, targetPitch));
                 vars.Set("KeyRoll", Mathf.Clamp(-rollDeg * 0.03f, -1f, 1f));
@@ -398,7 +407,7 @@ namespace FlightWorld.FlightGraphs
                 bool ok = settled && model.activeSelf && body.constraints == RigidbodyConstraints.None && body.detectCollisions
                           && health > full - 1f && Vector3.Distance(body.position, startPosition) < 1.5f && body.linearVelocity.magnitude < 0.5f
                           && wreckState.StartsWith("model hidden, constraints FreezeAll, collisions off, piloting False")
-                          && healthBeforeDive > full - 1f;
+                          && healthBeforeDive > full - 1f && gearDown();
                 File.AppendAllText(log, string.Format(culture,
                     "SUMMARY {0}: health before the dive {1:F0}; exploded at {2:F1} s; back after {3:F1} s; now {4}\nDONE\n",
                     ok ? "PASS" : "FAIL", healthBeforeDive, deathTime, reviveTime - deathTime, State()));

@@ -180,6 +180,14 @@ namespace FlightWorld.FlightGraphs
                             AnimBool(g, animatorBool, value == "1");
                         }));
             }
+            // The owner put the aircraft back on its spot (reset sign or respawn): gear down here too.
+            g.On(g.Platform("OnOneShot"), e =>
+                g.If(g.Same(g.EventOut(e, "Data", typeof(string)), g.Call(typeof(string), "Concat", new[] { typeof(string), typeof(string) }, null,
+                    "home:", g.ObjVar("BoomMessage", typeof(string)))), () =>
+                {
+                    Wake(g);
+                    GearHome(g);
+                }));
             // (button 4 = thumbstick click: right hand = gear, left hand = flaps)
             g.On(g.Platform("OnControllerButtonPressed"), e =>
                 g.If(g.Same(g.EventOut(e, "Button Type", typeof(int)), 4), () =>
@@ -1059,8 +1067,11 @@ namespace FlightWorld.FlightGraphs
         /// Do not try to keep bystanders off an occupied aircraft by switching the body's collision detection
         /// off on their client: its seats then cannot be hit by a pointer there, so nobody can board
         /// (two-client test, 2026-11-21). The fixed app does not let touch take these aircraft anyway.
+        ///
+        /// Off since 2026-11-22: players found every passenger seat unclickable (nobody can ride in an empty
+        /// aircraft or wait in one for a pilot), and the app on the headset that day was built after the fix.
         /// </summary>
-        const bool LockOtherSeatsUntilPilot = true;
+        public const bool LockOtherSeatsUntilPilot = false;
 
         /// <summary>
         /// Until 2026-11-21 the app held every synced physics object to 50 m/s while a player simulated it,
@@ -1162,7 +1173,7 @@ namespace FlightWorld.FlightGraphs
         /// <summary>The wreck's time is up: the owner moves it home, and everyone shows it again.</summary>
         static void Revive(GraphWriter g)
         {
-            g.If(g.Or(g.B("TestPilot"), g.Call(Sync, "_DoIOwn", Type.EmptyTypes, null)), () => MoveHome(g));
+            g.If(g.Or(g.B("TestPilot"), g.Call(Sync, "_DoIOwn", Type.EmptyTypes, null)), () => MoveHome(g), () => GearHome(g));
             g.Set(RB, "detectCollisions", null, true);
             g.SetGraphVar("Health", g.P("FullHealth"));
             g.SetGraphVar("Dead", false);
@@ -1192,13 +1203,27 @@ namespace FlightWorld.FlightGraphs
             g.SetGraphVar("VertGs", 1f);
             g.SetGraphVar("GsAll", Vector3.up);
             g.SetGraphVar("TaxiLerper", 0f);
+            GearHome(g);
+            // Everyone else saw the gear go up (a one-shot from the pilot): tell them it is down again.
+            g.PlatformDo("SendOneShot", ("Data", g.Call(typeof(string), "Concat", new[] { typeof(string), typeof(string) }, null,
+                "home:", g.ObjVar("BoomMessage", typeof(string)))), ("All Instances", false));
+            g.SetGraphVar("VTOLAngle", g.P("VTOLDefaultValue"));
+            g.SetGraphVar("VTOLAngleInput", g.P("VTOLDefaultValue"));
+        }
+
+        /// <summary>
+        /// Gear down and locked and flaps as parked, at once (no travel): an aircraft that is reset or respawns
+        /// stands on its wheels. Runs on every client.
+        /// </summary>
+        static void GearHome(GraphWriter g)
+        {
             g.SetGraphVar("GearUp", false);
+            g.SetGraphVar("GearPos", 1f);
             AnimBool(g, "gearup", false);
             AnimTrigger(g, "instantgeardown");
             g.SetGraphVar("FlapsOn", g.ObjVar("FlapsDefaultOn", typeof(bool)));
+            g.SetGraphVar("FlapPos", g.Select(g.ObjVar("FlapsDefaultOn", typeof(bool)), 1f, 0f));
             AnimBool(g, "flaps", g.ObjVar("FlapsDefaultOn", typeof(bool)));
-            g.SetGraphVar("VTOLAngle", g.P("VTOLDefaultValue"));
-            g.SetGraphVar("VTOLAngleInput", g.P("VTOLDefaultValue"));
         }
 
         /// <summary>While flying, the thumbsticks steer the aircraft instead of moving or turning the player.</summary>
