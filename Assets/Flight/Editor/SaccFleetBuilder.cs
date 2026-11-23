@@ -640,9 +640,12 @@ namespace FlightWorld.FlightGraphs
                 float groundUnder = wheels.Length > 0 ? wheels.Min(w => w.transform.position.y - w.radius - w.suspensionDistance * 0.5f) : root.transform.position.y;
                 Vector3 exitPoint = special.exitAt.HasValue ? new Vector3(special.exitAt.Value.x, groundUnder + 0.25f, special.exitAt.Value.y)
                     : exit != null ? exit.position : go.transform.position + root.transform.right * 3f;
-                // The seat goes where the app will put the sitter's eyes on the eye point (FleetParts.SeatFor).
-                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, root.transform.forward);
-                go.transform.rotation = root.transform.rotation;
+                // The seat keeps the way the original faces (door gunners look out of their doors, some passengers
+                // ride backwards), stood upright, and goes where the app will put the sitter's eyes on the eye point
+                // (FleetParts.SeatFor). (Until 2026-11-23 every seat was turned to face the nose.)
+                var facing = FleetParts.UprightFacing(go.transform, root.transform);
+                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, facing * Vector3.forward);
+                go.transform.rotation = facing;
                 go.layer = 5;                                            // UI layer: the only layers that can be clicked
                 foreach (var old in go.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(old);
                 var click = go.AddComponent<BoxCollider>();
@@ -667,6 +670,9 @@ namespace FlightWorld.FlightGraphs
             }
 
             if (!string.IsNullOrEmpty(special.standingFloorUnder)) StandingFloor(root, special.standingFloorUnder, report, name);
+            // Each seat onto its own cushion (with its eye point), and its rider's feet on the floor instead of through the
+            // hull (SeatLegs; check with FlightWorld/Flight/Test/Probe Seat Legs and Seat Leg Pictures).
+            SeatLegs.Fit(root, true);
 
             // ---- head-up display ----------------------------------------------------------------------------
             // The vehicle's own display is centred on the pilot's eye point (SAV_HUDController does this when

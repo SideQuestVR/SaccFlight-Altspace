@@ -441,9 +441,11 @@ namespace FlightWorld.FlightGraphs
                 }
                 var exit = go.transform.Find("Exit");                    // where the original lets its riders out
                 Vector3 exitPoint = exit != null ? exit.position : go.transform.position + root.transform.right * 2f;
-                // The seat goes where the app will put the sitter's eyes on the eye point (FleetParts.SeatFor).
-                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, root.transform.forward);
-                go.transform.rotation = root.transform.rotation;
+                // The seat keeps the way the original faces (the truck bed's benches face inwards), stood upright,
+                // and goes where the app will put the sitter's eyes on the eye point (FleetParts.SeatFor).
+                var facing = FleetParts.UprightFacing(go.transform, root.transform);
+                go.transform.position = FleetParts.SeatFor(eyePoint.position, root.transform.up, facing * Vector3.forward);
+                go.transform.rotation = facing;
                 go.layer = 5;                                            // UI layer: the only layers that can be clicked
                 foreach (var old in go.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(old);
                 var click = go.AddComponent<BoxCollider>();
@@ -463,6 +465,8 @@ namespace FlightWorld.FlightGraphs
                 else passengerSeatColliders.Add(click);
             }
             if (pilotSeat == null) throw new Exception($"{prefabName}: the driver's seat was inside a part that is not carried over");
+            // Each seat onto its own cushion (with its eye point), and its rider's feet on the floor (SeatLegs).
+            SeatLegs.Fit(root, true);
 
             // ---- platform components ------------------------------------------------------------------------
             var sync = root.AddComponent(GraphTypes.Find("BS.BSSyncedObject"));

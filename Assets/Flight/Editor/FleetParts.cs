@@ -218,6 +218,16 @@ namespace FlightWorld.FlightGraphs
         /// <summary>The seat origin that puts a seated player's eyes on `eye` (in the vehicle's axes `up` / `forward`).</summary>
         public static Vector3 SeatFor(Vector3 eye, Vector3 up, Vector3 forward) => eye - up * SeatEyeAbove - forward * SeatEyeAhead;
 
+        /// <summary>
+        /// The way an original seat faces, turned about the vehicle's up only (its yaw in the vehicle, no pitch or roll):
+        /// Sacc's door gunners and some passengers face sideways or backwards.
+        /// </summary>
+        public static Quaternion UprightFacing(Transform seat, Transform vehicle)
+        {
+            var ahead = Vector3.ProjectOnPlane(seat.forward, vehicle.up);
+            return ahead.sqrMagnitude < 1e-4f ? vehicle.rotation : Quaternion.LookRotation(ahead.normalized, vehicle.up);
+        }
+
         /// <summary>A seat's click area, in the seat's own axes: around where the sitter's head and chest are.</summary>
         public static Vector3 SeatClickCentre => new Vector3(0f, SeatEyeAbove - 0.05f, SeatEyeAhead - 0.2f);
 
