@@ -68,6 +68,9 @@ namespace FlightWorld.FlightGraphs
             /// <summary>The right thumbstick works its thrusters, ahead / astern and sideways, instead of pitch and roll (a
             /// balloon has nothing to pitch or roll with), whichever controls the pilot uses.</summary>
             public bool rightStickThrusts;
+            /// <summary>A floor players can stand on, always solid, under this named collider object's lowest box (the balloon's
+            /// basket), and a Ride Zone over it: standing players are drawn relative to the vehicle on every client.</summary>
+            public string standingFloorUnder;
             /// <summary>Where everybody gets out: metres to the right of and ahead of the vehicle's centre of mass, on the ground
             /// (its seats are metres above it).</summary>
             public Vector2? exitAt;
@@ -108,7 +111,7 @@ namespace FlightWorld.FlightGraphs
             },
             // The drone has one chair; a passenger rides on the cargo pack strapped on behind it.
             ["SD-1"] = new Special { extraSeats = new[] { new Vector3(0f, 0.25f, -0.9f) } },
-            ["Balloon"] = new Special { fullDetail = true, rightStickThrusts = true },
+            ["Balloon"] = new Special { fullDetail = true, rightStickThrusts = true, standingFloorUnder = "WALKABLE_COLLIDERS" },
         };
 
         /// <summary>Row number for a vehicle that is moored on the nearest open water instead of parked on the apron.</summary>
@@ -660,6 +663,8 @@ namespace FlightWorld.FlightGraphs
                     passengerEyes.Add(eyePoint);
                 }
             }
+
+            if (!string.IsNullOrEmpty(special.standingFloorUnder)) StandingFloor(root, special.standingFloorUnder, report, name);
 
             // ---- head-up display ----------------------------------------------------------------------------
             // The vehicle's own display is centred on the pilot's eye point (SAV_HUDController does this when

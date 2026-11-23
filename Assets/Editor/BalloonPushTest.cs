@@ -47,6 +47,8 @@ namespace FlightWorld.EditorTools
             var vars = Variables.Graph(GraphReference.New(balloon.GetComponent<ScriptMachine>(), true));
             var clock = Variables.Object(watch);
             var root = balloon.transform;
+            var body = balloon.GetComponent<Rigidbody>();
+            string State() => $" [piloting {vars.Get("Piloting")} dead {vars.Get("Dead")} health {vars.Get("Health")} held {vars.Get("Held")} constraints {body.constraints} engineOff {vars.Get("EngineOff")} throttle {vars.Get("Throttle")} engine {vars.Get("EngineOutput")} althold {vars.Get("AltHoldOn")} kinematic {body.isKinematic} velocity {body.linearVelocity} advanced {vars.Get("Advanced")} watchAdvanced {clock.Get("AdvancedControls")} pilotVehicle {(clock.Get("PilotVehicle") as GameObject)?.name} has {clock.Get("HasPilotVehicle")}]";
             if (step == 0 && t > 4)
             {
                 vars.Set("TestPilot", true);
@@ -59,7 +61,7 @@ namespace FlightWorld.EditorTools
             if (step >= 1) vars.Set("Throttle", 1f);
             if (step == 1 && t > 12)
             {
-                text += $"RightStickThrusts {Variables.Object(balloon).Get("RightStickThrusts")}, height after lift-off {root.position.y:F1} m\n";
+                text += $"RightStickThrusts {Variables.Object(balloon).Get("RightStickThrusts")}, height after lift-off {root.position.y:F1} m{State()}\n";
                 from = root.position;
                 Stick(0f, 1f);
                 step = 2;
@@ -67,7 +69,7 @@ namespace FlightWorld.EditorTools
             else if (step == 2 && t > 18)
             {
                 var moved = root.InverseTransformDirection(root.position - from);
-                text += $"stick forward 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustZ {vars.Get("RightThrustZ")})\n";
+                text += $"stick forward 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustZ {vars.Get("RightThrustZ")}){State()}\n";
                 from = root.position;
                 Stick(1f, 0f);
                 step = 3;
@@ -75,7 +77,7 @@ namespace FlightWorld.EditorTools
             else if (step == 3 && t > 24)
             {
                 var moved = root.InverseTransformDirection(root.position - from);
-                text += $"stick right 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustX {vars.Get("RightThrustX")})\nDONE\n";
+                text += $"stick right 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustX {vars.Get("RightThrustX")}){State()}\nDONE\n";
                 Stick(0f, 0f);
                 File.WriteAllText(LogPath, text);
                 SessionState.SetBool(ArmedKey, false);

@@ -401,6 +401,48 @@ namespace FlightWorld.FlightGraphs
             return asset;
         }
 
+        /// <summary>
+        /// A place to stand in a moving vehicle (the balloon's basket). Two parts, as the client's seat code wants them
+        /// (sidequest-greenfield-unity-60, 2026-11-23):
+        ///  - "StandingFloor": a solid copy of the named object's lowest box collider, a direct child of the vehicle,
+        ///    never switched off by this world. Friction on it is what carries a standing player.
+        ///  - "RideZone": a BSAttachedObject with avatar attachment type 2 (Ride Zone, newer clients; older ones ignore it
+        ///    with autoAttach off) and a trigger box from that floor to 2.2 m above it, on layer 2 (Ignore Raycast: the
+        ///    player's body still sets it off, the player's ground probes do not see it as a ceiling). While the local
+        ///    player stands inside, their pose is sent relative to it, so every client draws them in the basket, and the
+        ///    vehicle keeps its colliders on for them even while someone is seated in it. Its network id is the stable
+        ///    "fw-{vehicle}-RideZone" that Park gives it. It is a sibling of the seats, outside every seat's own attachment.
+        /// </summary>
+        static void StandingFloor(GameObject root, string under, StringBuilder report, string name)
+        {
+            var source = root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == under);
+            var lowest = source != null ? source.GetComponents<BoxCollider>().OrderBy(b => b.transform.TransformPoint(b.center).y).FirstOrDefault() : null;
+            if (lowest == null) { report.AppendLine($"WARNING {name}: no box collider under {under} to stand on"); return; }
+            var centre = root.transform.InverseTransformPoint(lowest.transform.TransformPoint(lowest.center));
+            var size = Vector3.Scale(lowest.size, lowest.transform.lossyScale);
+            float top = centre.y + size.y * 0.5f;
+
+            // (exactly the original box: a floor any lower would be a new lowest point, and the vehicle parks by its
+            // measured resting pose, so it would stand in the ground and be thrown out of it)
+            var floor = FleetParts.Child(root, "StandingFloor");
+            floor.transform.localPosition = centre;
+            var solid = floor.AddComponent<BoxCollider>();
+            solid.size = size;
+
+            var zone = FleetParts.Child(root, "RideZone");
+            zone.layer = 2;                                                   // Ignore Raycast
+            zone.transform.localPosition = new Vector3(centre.x, top + 1.1f, centre.z);
+            var trigger = zone.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(size.x, 2.2f, size.z);
+            var attached = zone.AddComponent(GraphTypes.Find("BS.BSAttachedObject"));
+            var so = new SerializedObject(attached);
+            so.FindProperty("avatarAttachmentType").intValue = 2;            // Ride Zone (the SDK here has no name for it yet)
+            so.FindProperty("autoAttach").boolValue = false;                  // (so an app without Ride Zones never attaches it)
+            so.ApplyModifiedPropertiesWithoutUndo();
+            report.AppendLine($"   [{name}] standing floor {size.x:F2} x {size.z:F2} m at {top:F2} m, ride zone over it");
+        }
+
         static string PathFrom(Transform top, Transform t)
         {
             string path = t.name;
