@@ -18,6 +18,7 @@ namespace FlightWorld.EditorTools
         static double started = -1;
         static int step;
         static Vector3 from;
+        static float heading;
         static string text = "";
 
         static BalloonPushTest()
@@ -77,8 +78,18 @@ namespace FlightWorld.EditorTools
             else if (step == 3 && t > 24)
             {
                 var moved = root.InverseTransformDirection(root.position - from);
-                text += $"stick right 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustX {vars.Get("RightThrustX")}){State()}\nDONE\n";
+                text += $"stick right 6 s: ahead {moved.z:F2} m, right {moved.x:F2} m (RightThrustX {vars.Get("RightThrustX")}){State()}\n";
                 Stick(0f, 0f);
+                heading = root.eulerAngles.y;
+                // the left stick to the right: a slow turn
+                EventBus.Trigger("OnControllerAxisUpdate", new CustomEventArgs("OnControllerAxisUpdate", new object[] { 0, 1f, 0f }));
+                step = 4;
+            }
+            else if (step == 4 && t > 32)
+            {
+                float turned = Mathf.DeltaAngle(heading, root.eulerAngles.y);
+                text += $"left stick right 8 s: turned {turned:F1} degrees, spinning {balloon.GetComponent<Rigidbody>().angularVelocity.y * Mathf.Rad2Deg:F1} deg/s (InYaw {vars.Get("InYaw")})\nDONE\n";
+                EventBus.Trigger("OnControllerAxisUpdate", new CustomEventArgs("OnControllerAxisUpdate", new object[] { 0, 0f, 0f }));
                 File.WriteAllText(LogPath, text);
                 SessionState.SetBool(ArmedKey, false);
                 EditorApplication.update -= Tick;

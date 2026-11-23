@@ -44,7 +44,8 @@ namespace FlightWorld.FlightGraphs
                          ("AAMBestAngle", 0f), ("AAMBestFound", false),
                          ("AGMLocked", false), ("AGMPoint", Vector3.zero), ("AGMTargetIsVehicle", false), ("AGMOffset", Vector3.zero),
                          ("AGMPressTime", -100f), ("AGMUnlockAt", -1f), ("AGMAim", Vector3.zero),
-                         ("BombNext", 0f), ("BombPoint", 0f), ("FlareNext", 0f),
+                         ("BombNext", 0f), ("BombPoint", 0f), ("FlareNext", 0f), ("Bomb2Count", 0f), ("Bomb2Next", 0f), ("Bomb2Point", 0f),
+                         ("LimitsOn", false),
                          ("PoolIndex", 0f), ("PickedIndex", -1f), ("Picked", false), ("NearFound", false), ("NearDistance", 0f),
                      })
                 g.Declare(name, value);
@@ -112,9 +113,11 @@ namespace FlightWorld.FlightGraphs
             g.SetGraphVar("AAMCount", g.P("AAMFull"));
             g.SetGraphVar("AGMCount", g.P("AGMFull"));
             g.SetGraphVar("BombCount", g.P("BombFull"));
+            g.SetGraphVar("Bomb2Count", g.P("Bomb2Full"));
+            g.SetGraphVar("LimitsOn", g.ObjVar("LimitsDefault", typeof(bool)));
             g.SetGraphVar("FlareCount", g.P("FlaresFull"));
             g.SetGraphVar("GunAmmo", g.P("GunAmmoFull"));
-            foreach (var (count, name) in new[] { ("AAMFull", "AAMFloat"), ("AGMFull", "AGMFloat"), ("BombFull", "BombFloat") })
+            foreach (var (count, name) in new[] { ("AAMFull", "AAMFloat"), ("AGMFull", "AGMFloat"), ("BombFull", "BombFloat"), ("Bomb2Full", "Bomb2Float") })
                 g.If(g.Greater(g.P(count), 0f), () => AnimFloatNamed(g, g.ObjVar(name, typeof(string)), 1f));
             g.SetGraphVar("EngineOff", false);
             g.SetGraphVar("EngineStarting", 0f);
@@ -221,6 +224,30 @@ namespace FlightWorld.FlightGraphs
                     Say(g, "canopy", "2");
                 }, () => g.If(g.And(g.Greater(g.F("Speed"), g.P("CanopyAutoCloseSpeed")), g.Greater(Now(g) - g.F("CanopyToggleTime"), 1.9f)),
                     () => CanopySet(g, g.Same(1, 2)))));
+        }
+
+        // ---- flight limits (DFUNC_Limits) -----------------------------------------------------------------------
+        /// <summary>A pull switches the limits off, or on again (not with the thrust tilted from where it rests).</summary>
+        static void LimitsPress(GraphWriter g)
+        {
+            g.If(g.B("LimitsOn"), () => g.SetGraphVar("LimitsOn", false), () =>
+                g.If(g.Less(g.Abs(g.F("VTOLAngle") - g.P("VTOLDefaultValue")), 0.001f), () => g.SetGraphVar("LimitsOn", true)));
+        }
+
+        /// <summary>
+        /// How much of the pilot's pull the limits let through this step (SaccAirVehicle's "Limits", from DFUNC_Limits):
+        /// 1, falling to 0 as the G nears its limit (either way) or the angle of attack nears its own; 1 on the ground
+        /// or with the limits off. Tilting the thrust from its resting angle switches them off, as in Sacc.
+        /// </summary>
+        static Val LimitFactor(GraphWriter g)
+        {
+            g.If(g.And(g.B("LimitsOn"), g.Greater(g.Abs(g.F("VTOLAngle") - g.P("VTOLDefaultValue")), 0.001f)), () => g.SetGraphVar("LimitsOn", false));
+            var gs = g.Keep(g.F("VertGs"));
+            var pullG = g.Clamp01(1f - (g.Abs(gs) - g.P("LimitGBegin")) / g.P("LimitGRange"));
+            var pushG = g.Clamp01(1f - (g.Abs(gs) - g.P("LimitGBeginNeg")) / g.P("LimitGRangeNeg"));
+            var byAngle = g.Clamp01(1f - (g.Abs(g.F("AoA")) - g.P("LimitAoABegin")) / g.P("LimitAoARange"));
+            var factor = g.Min(g.Select(g.Greater(gs, 0f), pullG, pushG), byAngle);
+            return g.Keep(g.Select(g.And(g.B("LimitsOn"), g.Not(g.B("Taxiing"))), factor, 1f));
         }
 
         // ---- cruise (DFUNC_Cruise) -------------------------------------------------------------------------------
@@ -441,6 +468,7 @@ namespace FlightWorld.FlightGraphs
             // (another client's copy of this vehicle is moved, not simulated: its velocity is the measured speed along its nose)
             var velocity = g.Select(g.Get(RB, "isKinematic"), g.Scale(g.Get(TF, "forward"), g.F("MovedSpeed")), g.Get(RB, "linearVelocity"), V3T);
             var start = g.Keep(g.Get(TF, "position", point));
+            velocity = velocity + g.Scale(g.Get(TF, "forward", point), g.ObjVarOf(shot, "LaunchSpeed", typeof(float)));
             foreach (var (name, value) in new (string, object)[]
                      {
                          ("Alive", true), ("Exploded", false), ("Age", 0f), ("Lost", false), ("DumbTime", 0f), ("Mine", mine),
@@ -798,23 +826,26 @@ namespace FlightWorld.FlightGraphs
             });
             g.If(g.Not(Held("Flares")), () => g.SetGraphVar("FlareNext", 0f));
 
-            // bombs: one now, another every BombHoldDelay while held, from each launch point in turn
-            g.If(g.And(g.And(Held("Bomb"), g.Greater(now, g.F("BombNext"))), g.And(g.Greater(g.F("BombCount"), 0.5f),
-                g.Or(g.ObjVar("BombGrounded", typeof(bool)), g.Not(grounded)))), () =>
+            // bombs, rockets and cannon shells: one now, another every BombHoldDelay while held, from each launch point in turn
+            foreach (var (prefix, message) in new[] { ("Bomb", "bomb"), ("Bomb2", "bomb2") })
             {
-                g.SetGraphVar("BombNext", now + g.P("BombHold"));
-                PickRound(g, "BombPool");
-                g.If(g.B("Picked"), () =>
+                g.If(g.And(g.And(Held(prefix), g.Greater(now, g.F(prefix + "Next"))), g.And(g.Greater(g.F(prefix + "Count"), 0.5f),
+                    g.Or(g.ObjVar(prefix + "Grounded", typeof(bool)), g.Not(grounded)))), () =>
                 {
-                    var point = g.Keep(g.Call(typeof(Mathf), "Repeat", new[] { typeof(float), typeof(float) }, null, g.F("BombPoint"), g.Max(g.P("BombPointCount"), 1f)));
-                    g.SetGraphVar("BombPoint", point + 1f);
-                    var from = g.ListItem(g.ObjVar("BombPoints", LIST), g.Call(typeof(Mathf), "FloorToInt", new[] { typeof(float) }, null, point), TF);
-                    Launch(g, g.GraphVar("PickedRound", GO), from, Self(g), g.Same(1, 2), g.Same(1, 2), Vector3Zero(g), Vector3Zero(g), true);
-                    Say(g, "bomb", g.Concat(g.NumberText(g.F("PickedIndex")), "|", g.NumberText(point)));
-                    Fired(g, "BombCount", "BombFull", "BombFloat", "BombFired");
+                    g.SetGraphVar(prefix + "Next", now + g.P(prefix + "Hold"));
+                    PickRound(g, prefix + "Pool");
+                    g.If(g.B("Picked"), () =>
+                    {
+                        var point = g.Keep(g.Call(typeof(Mathf), "Repeat", new[] { typeof(float), typeof(float) }, null, g.F(prefix + "Point"), g.Max(g.P(prefix + "PointCount"), 1f)));
+                        g.SetGraphVar(prefix + "Point", point + 1f);
+                        var from = g.ListItem(g.ObjVar(prefix + "Points", LIST), g.Call(typeof(Mathf), "FloorToInt", new[] { typeof(float) }, null, point), TF);
+                        Launch(g, g.GraphVar("PickedRound", GO), from, Self(g), g.Same(1, 2), g.Same(1, 2), Vector3Zero(g), Vector3Zero(g), true);
+                        Say(g, message, g.Concat(g.NumberText(g.F("PickedIndex")), "|", g.NumberText(point)));
+                        Fired(g, prefix + "Count", prefix + "Full", prefix + "Float", prefix + "Fired");
+                    });
                 });
-            });
-            g.If(g.Not(Held("Bomb")), () => g.SetGraphVar("BombNext", 0f));
+                g.If(g.Not(Held(prefix)), () => g.SetGraphVar(prefix + "Next", 0f));
+            }
 
             // cruise: the set speed follows the hand while its trigger is held, 250 m/s for every metre
             var cruiseLeft = g.Keep(g.And(Picked(g, "L", "CruiseSlot"), g.Greater(g.F("TrigL"), 0.75f)));
@@ -881,6 +912,7 @@ namespace FlightWorld.FlightGraphs
         {
             CanopyWatch(g);
             g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("HudHold", GO), g.B("AltHoldOn"));
+            g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("HudLimit", GO), g.B("LimitsOn"));
             g.If(g.B("Advanced"), () =>
             {
                 ShowAll(g, "EngineLit", g.Not(g.B("EngineOff")));
@@ -891,7 +923,8 @@ namespace FlightWorld.FlightGraphs
                 ShowAll(g, "SmokeLit", g.B("SmokeOn"));
                 ShowAll(g, "AgmLit", g.B("AGMLocked"));
                 var format = new[] { typeof(string), typeof(object) };
-                foreach (var (text, count) in new[] { ("AAMText", "AAMCount"), ("AGMText", "AGMCount"), ("BombText", "BombCount"), ("FlareText", "FlareCount") })
+                ShowAll(g, "LimitsLit", g.B("LimitsOn"));
+                foreach (var (text, count) in new[] { ("AAMText", "AAMCount"), ("AGMText", "AGMCount"), ("BombText", "BombCount"), ("Bomb2Text", "Bomb2Count"), ("FlareText", "FlareCount") })
                     g.Set(TXT, "text", g.ObjVar(text, TXT), g.Call(typeof(string), "Format", format, null, "{0:F0}", g.F(count)));
                 g.Set(TXT, "text", g.ObjVar("CruiseText", TXT), g.Select(g.B("CruiseOn"),
                     g.Call(typeof(string), "Format", format, null, "{0:F0}", g.F("CruiseSpeed") * g.P("CruiseKnots")), "", typeof(string)));
@@ -915,6 +948,7 @@ namespace FlightWorld.FlightGraphs
             g.If(Picked(g, side, "SmokeSlot"), () => SmokePress(g));
             g.If(Picked(g, side, "AamSlot"), () => AAMPress(g));
             g.If(Picked(g, side, "AgmSlot"), () => AGMPress(g));
+            g.If(Picked(g, side, "LimitsSlot"), () => LimitsPress(g));
         }
 
         /// <summary>
@@ -995,14 +1029,15 @@ namespace FlightWorld.FlightGraphs
                             g.V3(g.ParseNumber(Arg(7)), g.ParseNumber(Arg(8)), g.ParseNumber(Arg(9))), false);
                         Fired(g, "AGMCount", "AGMFull", "AGMFloat", "AGMFired");
                     });
-                    g.If(g.Same(kind, "bomb"), () =>
-                    {
-                        Wake(g);
-                        var from = g.ListItem(g.ObjVar("BombPoints", LIST), IndexOf(g, Arg(3)), TF);
-                        Launch(g, g.ListItem(g.ObjVar("BombPool", LIST), IndexOf(g, Arg(2)), GO), from, Self(g), g.Same(1, 2), g.Same(1, 2),
-                            Vector3Zero(g), Vector3Zero(g), false);
-                        Fired(g, "BombCount", "BombFull", "BombFloat", "BombFired");
-                    });
+                    foreach (var (prefix, message) in new[] { ("Bomb", "bomb"), ("Bomb2", "bomb2") })
+                        g.If(g.Same(kind, message), () =>
+                        {
+                            Wake(g);
+                            var from = g.ListItem(g.ObjVar(prefix + "Points", LIST), IndexOf(g, Arg(3)), TF);
+                            Launch(g, g.ListItem(g.ObjVar(prefix + "Pool", LIST), IndexOf(g, Arg(2)), GO), from, Self(g), g.Same(1, 2), g.Same(1, 2),
+                                Vector3Zero(g), Vector3Zero(g), false);
+                            Fired(g, prefix + "Count", prefix + "Full", prefix + "Float", prefix + "Fired");
+                        });
                 });
             });
             // damage this client decided and that this vehicle is to take here (SendDamage)

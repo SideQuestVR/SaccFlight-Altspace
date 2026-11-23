@@ -40,7 +40,8 @@ namespace FlightWorld.FlightGraphs
             "<b>Taking off</b>\n" +
             "Aeroplanes: full throttle, keep straight, ease the nose up as the speed builds.\n" +
             "Helicopters, the drone and the balloon: raise the throttle and they lift.\n" +
-            "The balloon: the right stick (or I K J L) pushes it ahead, astern and sideways.\n\n" +
+            "The balloon: the right stick (or I K J L) pushes it ahead, astern and sideways;\n" +
+            "the left stick sideways (or Q / E) turns it, slowly.\n\n" +
             "<b>The airliner</b>\n" +
             "The blue AIRLINER sign takes you to its nose. Point up at the captain's window to take the left seat;\n" +
             "passengers point at the front of the cabin. Flaps out for take-off and landing.\n\n" +

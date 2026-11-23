@@ -23,7 +23,7 @@ namespace FlightWorld.FlightGraphs
         /// How many of each round can be in the air at once from one vehicle (a round stays out for its flight and
         /// then ten seconds of explosion); a launcher that has more waits for one to come back.
         /// </summary>
-        static readonly Dictionary<string, int> PoolSize = new Dictionary<string, int> { ["aam"] = 6, ["agm"] = 4, ["bomb"] = 6 };
+        static readonly Dictionary<string, int> PoolSize = new Dictionary<string, int> { ["aam"] = 6, ["agm"] = 4, ["bomb"] = 6, ["bomb2"] = 8 };
 
         /// <summary>Everything the graph reads about one vehicle's dial functions, as object variables.</summary>
         sealed class FunctionSettings
@@ -199,17 +199,38 @@ namespace FlightWorld.FlightGraphs
             s.Ref("AGMUnlockSound", Ref<AudioSource>(agm, "AGMUnlock"));
             s.Ref("AGMText", Ref<UnityEngine.UI.Text>(agm, "HUDText_AGM_ammo"));
 
-            var bomb = F("bomb");
-            s.values["BombFull"] = Num(bomb, "NumBomb", 0f);
-            s.values["BombHold"] = Mathf.Max(Num(bomb, "BombHoldDelay", 0.5f), 0.1f);
-            s.values["BombGrounded"] = Flag(bomb, "AllowFiringWhenGrounded", false);
-            s.values["BombFloat"] = Text(bomb, "AnimFloatName", "");
-            s.values["BombFired"] = Text(bomb, "AnimFiredTriggerName", "");
-            var bombPoints = new AotList();
-            foreach (var point in Ref<Transform[]>(bomb, "BombLaunchPoints") ?? new Transform[0]) if (point != null) bombPoints.Add(point);
-            s.values["BombPoints"] = bombPoints;
-            s.values["BombPointCount"] = (float)bombPoints.Count;
-            s.Ref("BombText", Ref<UnityEngine.UI.Text>(bomb, "HUDText_Bomb_ammo"));
+            // bombs, and what Sacc also builds from its bomb launcher: rocket pods and cannons (a second one is "Bomb2")
+            var bombPointsAll = new List<Transform>();
+            foreach (var (kind, prefix) in new[] { ("bomb", "Bomb"), ("bomb2", "Bomb2") })
+            {
+                var bomb = F(kind);
+                s.values[prefix + "Full"] = Num(bomb, "NumBomb", 0f);
+                s.values[prefix + "Hold"] = Mathf.Max(Num(bomb, "BombHoldDelay", 0.5f), 0.05f);
+                s.values[prefix + "Grounded"] = Flag(bomb, "AllowFiringWhenGrounded", false);
+                s.values[prefix + "Float"] = Text(bomb, "AnimFloatName", "");
+                s.values[prefix + "Fired"] = Text(bomb, "AnimFiredTriggerName", "");
+                var points = new AotList();
+                foreach (var point in Ref<Transform[]>(bomb, "BombLaunchPoints") ?? new Transform[0]) if (point != null) { points.Add(point); bombPointsAll.Add(point); }
+                s.values[prefix + "Points"] = points;
+                s.values[prefix + "PointCount"] = (float)points.Count;
+                s.Ref(prefix + "Text", Ref<UnityEngine.UI.Text>(bomb, "HUDText_Bomb_ammo"));
+            }
+
+            // ---- flight limits (DFUNC_Limits): how hard the pilot can pull, eased off towards a G and an angle of attack
+            var limits = F("limits");
+            s.values["HasLimits"] = limits != null;
+            s.values["LimitsDefault"] = limits != null && Flag(limits, "DefaultLimitsOn", true);
+            float gBegin = Num(limits, "GLimiter_Begin_Pos", 35f), gEnd = Num(limits, "GLimiter_Pos", 40f);
+            float gBeginNeg = Num(limits, "GLimiter_Begin_Neg", -1f), gEndNeg = Num(limits, "GLimiter_Neg", -1f);
+            if (gBeginNeg < 0f || gEndNeg < 0f) { gBeginNeg = gBegin; gEndNeg = gEnd; }
+            bool noG = Flag(limits, "DisableGLimiter", false), noAoA = Flag(limits, "DisableAoALimiter", false);
+            s.values["LimitGBegin"] = noG ? 100000f : gBegin;
+            s.values["LimitGRange"] = Mathf.Max(gEnd - gBegin, 0.001f);
+            s.values["LimitGBeginNeg"] = noG ? 100000f : gBeginNeg;
+            s.values["LimitGRangeNeg"] = Mathf.Max(gEndNeg - gBeginNeg, 0.001f);
+            s.values["LimitAoABegin"] = noAoA ? 100000f : Num(limits, "AoALimiter_Begin", 10f);
+            s.values["LimitAoARange"] = Mathf.Max(Num(limits, "AoALimiter", 14f) - Num(limits, "AoALimiter_Begin", 10f), 0.001f);
+            s.Ref("HudLimit", Ref<GameObject>(limits, "HudLimit"));
 
             var flares = F("flares");
             s.values["FlaresFull"] = Num(flares, "NumFlares", 0f);
@@ -234,13 +255,13 @@ namespace FlightWorld.FlightGraphs
             s.Ref("RadarLockedSound", sound != null ? sound.RadarLocked : null);
 
             // (launch points sat under the launchers' own objects, which go with the scripts: keep them)
-            foreach (var point in new[] { Ref<Transform>(aam, "AAMLaunchPoint"), Ref<Transform>(agm, "AGMLaunchPoint") }.Concat(bombPoints.Cast<Transform>()))
+            foreach (var point in new[] { Ref<Transform>(aam, "AAMLaunchPoint"), Ref<Transform>(agm, "AGMLaunchPoint") }.Concat(bombPointsAll))
                 if (point != null) point.SetParent(root.transform, true);
 
             // ---- the pools: copies of each launcher's round, held under the vehicle until fired
             var holder = FleetParts.Child(root, "Weapons");
             var all = new AotList();
-            foreach (var (kind, templateField, number, code) in new[] { ("aam", "AAM", 1f, 1f), ("agm", "AGM", 2f, 2f), ("bomb", "Bomb", 3f, 3f) })
+            foreach (var (kind, templateField, number, code) in new[] { ("aam", "AAM", 1f, 1f), ("agm", "AGM", 2f, 2f), ("bomb", "Bomb", 3f, 3f), ("bomb2", "Bomb", 3f, 3f) })
             {
                 var pool = new AotList();
                 s.values[Cap(kind) + "Pool"] = pool;
@@ -281,9 +302,11 @@ namespace FlightWorld.FlightGraphs
                     var trails = new AotList();
                     foreach (var trail in round.GetComponentsInChildren<TrailRenderer>(true)) trails.Add(trail);
                     v.Set("Trails", trails);
-                    // flight: Sacc's missiles burn 500 N on 1 kg for 3 s (their burn animation drives a ConstantForce)
-                    v.Set("Thrust", kind == "bomb" ? 0f : 500f);
-                    v.Set("BurnTime", 3f);
+                    // flight: a Sacc missile or rocket is pushed by a ConstantForce its own animation turns on for its burn
+                    var (thrust, burn) = Burn(template, templateBody);
+                    v.Set("Thrust", thrust);
+                    v.Set("BurnTime", burn);
+                    v.Set("LaunchSpeed", Num(controller, "LaunchSpeed", 0f));      // (a cannon's shell leaves the barrel at this)
                     v.Set("Drag", templateBody != null ? templateBody.linearDamping : 0.1f);
                     v.Set("Gravity", templateBody == null || templateBody.useGravity);
                     v.Set("AirPhysics", Num(controller, "AirPhysicsStrength", kind == "aam" ? 0.8f : kind == "agm" ? 3f : 0f));
@@ -304,7 +327,9 @@ namespace FlightWorld.FlightGraphs
             }
             s.values["AllRounds"] = all;
             report.AppendLine($"   [{name}] functions: " + string.Join(", ", functionOf.Keys.OrderBy(k => k)) +
-                              $"; rounds aam {((AotList)s.values["AamPool"]).Count}, agm {((AotList)s.values["AgmPool"]).Count}, bomb {((AotList)s.values["BombPool"]).Count}" +
+                              $"; rounds aam {((AotList)s.values["AamPool"]).Count}, agm {((AotList)s.values["AgmPool"]).Count}, bomb {((AotList)s.values["BombPool"]).Count}, bomb2 {((AotList)s.values["Bomb2Pool"]).Count}" +
+                              " (" + string.Join(", ", ((AotList)s.values["AllRounds"]).Cast<GameObject>().GroupBy(r => r.name.Split(' ')[0]).Select(grp =>
+                                  { var d = grp.First().GetComponent<Variables>().declarations; return $"{grp.Key} {d.Get("Thrust")}/s2 for {d.Get("BurnTime")} s, {d.Get("LaunchSpeed")} m/s"; })) + ")" +
                               $"; gun {s.values["GunAmmoFull"]} s at {rate:F0}/s x {damage}");
             return s;
         }
@@ -363,6 +388,32 @@ namespace FlightWorld.FlightGraphs
         }
 
         const string RoundDir = "Assets/Flight/Rounds";
+
+        /// <summary>
+        /// How hard a round is pushed and for how long: its ConstantForce's forward force, as its own animation sets it
+        /// (missiles' and rockets' burn clips switch it on for a few seconds), per kilogram of its body. None: (0, 0).
+        /// </summary>
+        static (float thrust, float seconds) Burn(GameObject template, Rigidbody body)
+        {
+            var force = template.GetComponentInChildren<ConstantForce>(true);
+            if (force == null) return (0f, 0f);
+            float mass = body != null && body.mass > 0f ? body.mass : 1f;
+            float most = force.relativeForce.z, until = most > 0f ? 1000f : 0f;
+            var anim = template.GetComponentInChildren<Animator>(true);
+            if (anim != null && anim.runtimeAnimatorController != null)
+                foreach (var clip in anim.runtimeAnimatorController.animationClips)
+                    foreach (var binding in AnimationUtility.GetCurveBindings(clip).Where(b => b.type == typeof(ConstantForce) && b.propertyName.Contains("RelativeForce.z")))
+                    {
+                        var curve = AnimationUtility.GetEditorCurve(clip, binding);
+                        if (curve == null || curve.length == 0) continue;
+                        float peak = curve.keys.Max(k => k.value);
+                        if (peak <= most) continue;
+                        most = peak;
+                        float on = curve.keys.Where(k => k.value > 0f).Select(k => k.time).DefaultIfEmpty(0f).Max();
+                        until = curve.keys.Where(k => k.time > on && k.value <= 0f).Select(k => k.time).DefaultIfEmpty(clip.length).Min();
+                    }
+            return (most / mass, until);
+        }
 
         /// <summary>
         /// A launcher's round as this world flies it, saved as a prefab asset: a copy of the template with no body,

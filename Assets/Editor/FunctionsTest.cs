@@ -67,7 +67,9 @@ namespace FlightWorld.EditorTools
         {
             if (!EditorApplication.isPlaying) { started = -1; step = 0; return; }
             var fleet = GameObject.Find("Aircraft");
-            var me = fleet?.transform.Find("SF-1 1")?.gameObject;
+            string shooter = File.Exists("Library/FlightWorld/test_target.txt") ? File.ReadAllText("Library/FlightWorld/test_target.txt").Trim() : "";
+            if (shooter.Length == 0 || shooter == "SF-1 2") shooter = "SF-1 1";
+            var me = fleet?.transform.Find(shooter)?.gameObject;
             var them = fleet?.transform.Find("SF-1 2")?.gameObject;
             var watch = GameObject.Find("FleetWatch");
             var weapons = GameObject.Find("WeaponsWorld");
@@ -137,7 +139,7 @@ namespace FlightWorld.EditorTools
                     Pick(own, "R", "Hook"); Pull("R");
                     break;
                 case 6:
-                    Check("hook down", B("HookDown") && anim.GetBool("hookdown"), $"HookDown {V("HookDown")} anim {anim.GetBool("hookdown")}");
+                    Check("hook down", System.Convert.ToSingle(own.Get("RHookSlot")) < 0f || (B("HookDown") && anim.GetBool("hookdown")), $"HookDown {V("HookDown")} anim {anim.GetBool("hookdown")}");
                     Pick(own, "R", "Smoke"); Pull("R");
                     break;
                 case 7:
@@ -204,9 +206,37 @@ namespace FlightWorld.EditorTools
                 case 16:
                     holdRight = false; Raise("OnTriggerAxisUpdate", 1, 0f);
                     Check("bomb away", F("BombCount") < System.Convert.ToSingle(own.Get("BombFull")), $"{F("BombCount")} left, {world.Get("LiveCount")} round(s) in the air");
+                    step = 69;                                           // (on to the extra steps 70-72, then back to 17)
+                    Pick(own, "L", "Limits"); Pull("L");                 // limits: on at the start, a pull turns them off
+                    wait = 0.5;
+                    break;
+                case 70:
+                    Check("limits off", !(own.Get("HasLimits") is bool hl && hl) || !B("LimitsOn"), $"has limits {own.Get("HasLimits")} on {V("LimitsOn")}");
+                    if (System.Convert.ToSingle(own.Get("RBomb2Slot")) >= 0f || System.Convert.ToSingle(own.Get("LBomb2Slot")) >= 0f)
+                    {
+                        string side = System.Convert.ToSingle(own.Get("RBomb2Slot")) >= 0f ? "R" : "L";
+                        Pick(own, side, "Bomb2");
+                        if (side == "R") holdRight = true; else holdLeft = true;
+                    }
+                    wait = 0.15;
+                    break;
+                case 71:
+                    holdRight = holdLeft = false; Raise("OnTriggerAxisUpdate", 1, 0f); Raise("OnTriggerAxisUpdate", 0, 0f);
+                    wait = 0.6;
+                    break;
+                case 72:
+                {
+                    var second = ((System.Collections.IEnumerable)own.Get("Bomb2Pool")).Cast<GameObject>().Where(r => Variables.Object(r).Get("Alive") is bool a && a).ToList();
+                    if (System.Convert.ToSingle(own.Get("Bomb2Full")) > 0f)
+                        Check("second launcher fires ahead", second.Count > 0 && second.All(r => me.transform.InverseTransformPoint(r.transform.position).z > 20f),
+                            string.Join(", ", second.Select(r => $"{r.name} {me.transform.InverseTransformPoint(r.transform.position)}")) + $" ({F("Bomb2Count")} left)");
                     Pick(own, "R", "Agm"); Pull("R");                    // guided bomb: a pull locks where the pilot looks
                     wait = 0.5;
                     break;
+                }
+                case 73:
+                    step = 17;                                           // (counts on from here after this step's checks)
+                    goto case 17;
                 case 17:
                     Check("guided bomb locked", B("AGMLocked"), $"locked {V("AGMLocked")} at {V("AGMPoint")}");
                     Pull("R"); Pull("R");                                // a double pull fires

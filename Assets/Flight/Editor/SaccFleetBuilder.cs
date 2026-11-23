@@ -71,6 +71,8 @@ namespace FlightWorld.FlightGraphs
             /// <summary>A floor players can stand on, always solid, under this named collider object's lowest box (the balloon's
             /// basket), and a Ride Zone over it: standing players are drawn relative to the vehicle on every client.</summary>
             public string standingFloorUnder;
+            /// <summary>A vehicle with no rudder turns this many degrees a second at full yaw input (eased in and out).</summary>
+            public float slowYaw;
             /// <summary>Where everybody gets out: metres to the right of and ahead of the vehicle's centre of mass, on the ground
             /// (its seats are metres above it).</summary>
             public Vector2? exitAt;
@@ -111,7 +113,7 @@ namespace FlightWorld.FlightGraphs
             },
             // The drone has one chair; a passenger rides on the cargo pack strapped on behind it.
             ["SD-1"] = new Special { extraSeats = new[] { new Vector3(0f, 0.25f, -0.9f) } },
-            ["Balloon"] = new Special { fullDetail = true, rightStickThrusts = true, standingFloorUnder = "WALKABLE_COLLIDERS" },
+            ["Balloon"] = new Special { fullDetail = true, rightStickThrusts = true, standingFloorUnder = "WALKABLE_COLLIDERS", slowYaw = 4f },
         };
 
         /// <summary>Row number for a vehicle that is moored on the nearest open water instead of parked on the apron.</summary>
@@ -842,7 +844,7 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("GearLit", gearLit);
             variables.declarations.Set("FlapsLit", flapsLit);
             variables.declarations.Set("ThrustersOnDial", dialLeft.Slot("thrust") >= 0f || dialRight.Slot("thrust") >= 0f);
-            foreach (var fn in new[] { "engine", "canopy", "cruise", "althold", "hook", "smoke", "agm" })
+            foreach (var fn in new[] { "engine", "canopy", "cruise", "althold", "hook", "smoke", "agm", "limits" })
             {
                 var marks = new AotList();
                 foreach (var lit in dialLeft.Lit(fn).Concat(dialRight.Lit(fn)).Where(o => o)) { lit.SetActive(false); marks.Add(lit); }
@@ -858,6 +860,8 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("TargetIndex", -1f);         // (its place on the weapons' list: FleetParts.RegisterWithWatch)
             variables.declarations.Set("Wrecked", false);
             variables.declarations.Set("RightStickThrusts", special.rightStickThrusts && hasThrusters);
+            variables.declarations.Set("SlowYaw", special.slowYaw);
+            variables.declarations.Set("SlowYawEase", 3f);
             if (special.rightStickThrusts && !hasThrusters) report.AppendLine($"WARNING {name}: right stick should work its thrusters, but it has none");
             // The pilot's two dial displays are shown only with the advanced controls on; copies for other seats never.
             var dialDisplays = new AotList();
@@ -1054,6 +1058,7 @@ namespace FlightWorld.FlightGraphs
                 case "DFUNC_Canopy": return "canopy";
                 case "DFUNC_Cruise": case "DFUNC_a320_AutoThrust": return "cruise";
                 case "DFUNC_AltHold": return "althold";
+                case "DFUNC_Limits": return "limits";
                 case "DFUNC_Hook": return "hook";
                 case "DFUNC_Smoke": return "smoke";
                 case "DFUNC_Gun": return "gun";
@@ -1066,7 +1071,7 @@ namespace FlightWorld.FlightGraphs
         }
 
         /// <summary>Every kind the dials can hold, in the order their slot variables are written.</summary>
-        static readonly string[] DialKinds = { "gear", "flaps", "brake", "vtol", "thrust", "engine", "canopy", "cruise", "althold", "hook", "smoke", "gun", "aam", "agm", "bomb", "flares" };
+        static readonly string[] DialKinds = { "gear", "flaps", "brake", "vtol", "thrust", "engine", "canopy", "cruise", "althold", "hook", "smoke", "gun", "aam", "agm", "bomb", "bomb2", "flares", "limits" };
 
         /// <summary>Read a dial as SaccEntity sets it up when it starts (its selection maths included).</summary>
         static Dial ReadDial(SaccEntity entity, bool left, Dictionary<string, MonoBehaviour> firstOfKind)
@@ -1096,6 +1101,8 @@ namespace FlightWorld.FlightGraphs
                 if (function.GetType().GetField("Dial_Funcon")?.GetValue(function) is GameObject one && one) marks.Add(one);
                 if (function.GetType().GetField("Dial_Funcon_Array")?.GetValue(function) is GameObject[] many) marks.AddRange(many.Where(o => o));
                 string kind = KindOf(function);
+                // (a second launcher of the bomb kind - rockets beside bombs, a cannon beside bombs - is a launcher of its own)
+                if (kind == "bomb" && firstOfKind.TryGetValue("bomb", out var firstBomb) && firstBomb != function) kind = "bomb2";
                 if (kind.Length > 0 && !dial.slots.ContainsKey(kind)) dial.slots[kind] = i;
                 if (kind.Length > 0 && !firstOfKind.ContainsKey(kind)) firstOfKind[kind] = function;
                 if (!dial.lit.TryGetValue(kind, out var list)) dial.lit[kind] = list = new List<GameObject>();

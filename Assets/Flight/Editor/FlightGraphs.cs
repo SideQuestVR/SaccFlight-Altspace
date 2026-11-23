@@ -1446,11 +1446,15 @@ namespace FlightWorld.FlightGraphs
             // (altitude hold flies the stick while it is on and the pilot is not holding it: FlightGraphsFunctions.cs)
             AltHoldStep(g, dt, vel, forward, up, right);
             var held = g.Keep(g.And(g.B("AltHoldOn"), g.Not(g.B("StickHeld"))));
-            Val Slew(string state, string key, string stick, string hold) =>
-                g.SetGraphVar(state, g.Select(held, g.F(hold), g.MoveTowards(g.F(state), g.Clamp(g.F(key) + g.F(stick), -1f, 1f), slew)));
-            var inPitch = Slew("InPitch", "KeyPitch", "StickPitch", "AHOutPitch");
-            var inYaw = Slew("InYaw", "KeyYaw", "StickYaw", "AHOutYaw");
-            var inRoll = Slew("InRoll", "KeyRoll", "StickRoll", "AHOutRoll");
+            // (flight limits, where the vehicle has them: a pull against the G, and yaw, are let through only so far)
+            var limit = LimitFactor(g);
+            var pitchAsked = g.Keep(g.Clamp(g.F("KeyPitch") + g.F("StickPitch"), -1f, 1f));
+            var againstG = g.Or(g.And(g.Less(pitchAsked, 0f), g.Greater(g.F("VertGs"), 0f)), g.And(g.Greater(pitchAsked, 0f), g.Less(g.F("VertGs"), 0f)));
+            Val Slew(string state, Val asked, string hold) =>
+                g.SetGraphVar(state, g.Select(held, g.F(hold), g.MoveTowards(g.F(state), asked, slew)));
+            var inPitch = Slew("InPitch", g.Select(againstG, pitchAsked * limit, pitchAsked), "AHOutPitch");
+            var inYaw = Slew("InYaw", g.Clamp(g.F("KeyYaw") + g.F("StickYaw"), -1f, 1f) * limit, "AHOutYaw");
+            var inRoll = Slew("InRoll", g.Clamp(g.F("KeyRoll") + g.F("StickRoll"), -1f, 1f), "AHOutRoll");
             var throttleRate = g.Clamp(g.F("KeyThrottle") + g.F("StickThrottle"), -1f, 1f);
             var manualThrottle = g.SetGraphVar("Throttle", g.Clamp01(g.F("Throttle") + throttleRate * g.P("KeyboardThrottleSens") * dt));
             var throttle = g.Keep(CruiseThrottle(g, manualThrottle, speed, dt));
@@ -1601,6 +1605,16 @@ namespace FlightWorld.FlightGraphs
                 Val Push(Val input, string axis) => input * g.Select(g.Greater(input, 0f), g.P("Thrust" + axis + "Positive"), g.P("Thrust" + axis + "Negative"));
                 g.Do(RB, "AddRelativeForce", new[] { V3T, typeof(ForceMode) }, null,
                     g.V3(Push(sideways, "X"), Push(upward, "Y"), Push(ahead, "Z")), ForceMode.Acceleration);
+            });
+
+            // -- a slow turn for a vehicle that has no rudder (the balloon): at full yaw input SlowYaw degrees a second,
+            //    eased in and out at SlowYawEase degrees a second squared; no input eases it back to not turning --
+            g.If(g.Greater(g.P("SlowYaw"), 0f), () =>
+            {
+                var spin = g.Keep(g.Y(g.Call(TF, "InverseTransformDirection", Vec, null, g.Get(RB, "angularVelocity"))));
+                var wanted = g.Clamp(inYaw, -1f, 1f) * g.P("SlowYaw") * Mathf.Deg2Rad;      // (positive = to the right, as the rudder)
+                var most = g.Keep(g.P("SlowYawEase") * Mathf.Deg2Rad * dt);
+                g.Do(RB, "AddRelativeTorque", new[] { V3T, typeof(ForceMode) }, null, g.V3(0f, g.Clamp(wanted - spin, -most, most), 0f), ForceMode.VelocityChange);
             });
 
             // -- the pilot's own weight. The app hangs a seated player's body (76 kg) on the vehicle with a
