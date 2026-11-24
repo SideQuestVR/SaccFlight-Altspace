@@ -45,7 +45,11 @@ namespace FlightWorld.FlightGraphs
                          ("AGMLocked", false), ("AGMPoint", Vector3.zero), ("AGMTargetIsVehicle", false), ("AGMOffset", Vector3.zero),
                          ("AGMPressTime", -100f), ("AGMUnlockAt", -1f), ("AGMAim", Vector3.zero),
                          ("BombNext", 0f), ("BombPoint", 0f), ("FlareNext", 0f), ("Bomb2Count", 0f), ("Bomb2Next", 0f), ("Bomb2Point", 0f),
-                         ("LimitsOn", false),
+                         ("LimitsOn", false), ("HandlingOn", false),
+                         ("FuelLeft", 0f), ("ResupplyTimer", 0f), ("Resupplied", false),
+                         ("OnCatapult", false), ("CatLaunching", false), ("CatOffset", Vector3.zero), ("CatLast", Vector3.zero), ("CatLockTime", -100f),
+                         ("Toggle1On", false), ("Toggle2On", false), ("Toggle3On", false), ("Toggle4On", false),
+                         ("Boost1Left", 1f), ("Boost2Left", 1f), ("Boost3Left", 1f), ("Boost1On", false), ("Boost2On", false), ("Boost3On", false),
                          ("PoolIndex", 0f), ("PickedIndex", -1f), ("Picked", false), ("NearFound", false), ("NearDistance", 0f),
                      })
                 g.Declare(name, value);
@@ -134,7 +138,29 @@ namespace FlightWorld.FlightGraphs
             AnimBoolNamed(g, g.ObjVar("GunBool", typeof(string)), false);
             g.SetGraphVar("AGMLocked", false);
             g.SetObjVar("Wrecked", false);
+            g.SetGraphVar("HandlingOn", false);
+            g.SetGraphVar("FuelLeft", g.P("Fuel"));
+            AnimFloat(g, "fuel", 1f);
+            g.SetGraphVar("OnCatapult", false);
+            g.SetGraphVar("CatLaunching", false);
+            for (int i = 1; i <= 4; i++) g.SetGraphVar($"Toggle{i}On", g.ObjVar($"Toggle{i}Default", typeof(bool)));
+            for (int i = 1; i <= 3; i++) g.SetGraphVar($"Boost{i}Left", 1f);
         }
+
+        // ---- switches (DFUNC_ToggleBool), boosts (DFUNC_CarBoost), thrust reverser (DFUNC_ToggleHandling) ----------
+        static void PilotToggle(GraphWriter g, int i, Val on)
+        {
+            var state = g.SetGraphVar($"Toggle{i}On", on, typeof(bool));
+            g.If(g.Greater(g.Get(typeof(string), "Length", g.ObjVar($"Toggle{i}Bool", typeof(string))), 0.5f), () =>
+                AnimBoolNamed(g, g.ObjVar($"Toggle{i}Bool", typeof(string)), state));
+            ShowAll(g, $"Toggle{i}Objects", state);
+            g.ForEach(g.ObjVar($"Toggle{i}Emission", ENUM), PS, system =>
+                g.Set(typeof(ParticleSystem.EmissionModule), "enabled", g.Get(PS, "emission", system), state));
+        }
+
+        static void BoostShow(GraphWriter g, int i, Val on) =>
+            g.If(g.Greater(g.Get(typeof(string), "Length", g.ObjVar($"Boost{i}Float", typeof(string))), 0.5f), () =>
+                AnimFloatNamed(g, g.ObjVar($"Boost{i}Float", typeof(string)), g.Select(on, 1f, 0f)));
 
         /// <summary>The pilot lets go of everything held (out of the cockpit, or the advanced controls switched off).</summary>
         static void FunctionsRelease(GraphWriter g)
@@ -152,10 +178,140 @@ namespace FlightWorld.FlightGraphs
             });
             g.SetGraphVar("SmokePicking", false);
             g.SetGraphVar("CruiseHeld", false);
+            // (off the catapult where it stands, if the pilot leaves it locked on)
+            g.If(g.B("OnCatapult"), () => CatapultRelease(g, Vector3Zero(g)));
             AAMClear(g);
             g.SetGraphVar("AGMLocked", false);
             g.SetGraphVar("AGMUnlockAt", -1f);
             Markers(g, false, false);
+        }
+
+        // ---- resupply (SaccResupplyTrigger and every function's SFEXT_G_ReSupply) ---------------------------------
+        /// <summary>
+        /// One second in a resupply zone: each kind of round a share of its full load (its FullReloadTimeSec), and on the
+        /// pilot's client fuel (RefuelTime) and repairs (RepairTime), with the resupply sound if anything was short.
+        /// The zone here is the ground within 250 m of where the vehicle parks (Sacc's worlds mark zones by hand).
+        /// </summary>
+        static void ResupplyStep(GraphWriter g, bool mine)
+        {
+            g.SetGraphVar("Resupplied", false);
+            void Count(string count, string full, string reload, string floatName)
+            {
+                g.If(g.Less(g.F(count), g.P(full) - 0.5f), () =>
+                {
+                    var add = g.Max(g.Call(typeof(Mathf), "Floor", new[] { typeof(float) }, null, g.P(full) / g.Max(g.P(reload), 0.1f)), 1f);
+                    var left = g.SetGraphVar(count, g.Min(g.F(count) + add, g.P(full)));
+                    if (floatName != null)
+                        g.If(g.Greater(g.Get(typeof(string), "Length", g.ObjVar(floatName, typeof(string))), 0.5f), () =>
+                            AnimFloatNamed(g, g.ObjVar(floatName, typeof(string)), left / g.Max(g.P(full), 1f)));
+                    g.SetGraphVar("Resupplied", true);
+                });
+            }
+            Count("AAMCount", "AAMFull", "AAMReload", "AAMFloat");
+            Count("AGMCount", "AGMFull", "AGMReload", "AGMFloat");
+            Count("BombCount", "BombFull", "BombReload", "BombFloat");
+            Count("Bomb2Count", "Bomb2Full", "Bomb2Reload", "Bomb2Float");
+            Count("FlareCount", "FlaresFull", "FlareReload", null);
+            g.If(g.Less(g.F("GunAmmo"), g.P("GunAmmoFull") - 0.01f), () =>
+            {
+                g.SetGraphVar("GunAmmo", g.Min(g.F("GunAmmo") + g.P("GunAmmoFull") / g.Max(g.P("GunReload"), 0.1f), g.P("GunAmmoFull")));
+                g.SetGraphVar("Resupplied", true);
+            });
+            if (!mine) return;
+            g.If(g.Less(g.F("FuelLeft"), g.P("Fuel") - 10f), () =>
+            {
+                g.SetGraphVar("FuelLeft", g.Min(g.F("FuelLeft") + g.P("Fuel") / g.Max(g.P("RefuelTime"), 0.1f), g.P("Fuel")));
+                g.SetGraphVar("Resupplied", true);
+            });
+            g.If(g.Less(g.F("Health"), g.P("FullHealth") - 0.01f), () =>
+            {
+                g.SetGraphVar("Health", g.Min(g.F("Health") + g.P("FullHealth") / g.Max(g.P("RepairTime"), 0.1f), g.P("FullHealth")));
+                g.SetGraphVar("Resupplied", true);
+            });
+            g.If(g.B("Resupplied"), () =>
+            {
+                Play(g, "ReSupplySound");
+                Say(g, "resupply", "1");
+            });
+        }
+
+        // ---- catapult (DFUNC_Catapult, with the Sacc catapult beside the runway) -------------------------------------
+        /// <summary>Off the catapult with this velocity (zero: let go where it stands).</summary>
+        static void CatapultRelease(GraphWriter g, Val velocity)
+        {
+            var thrown = g.Keep(velocity);
+            g.SetGraphVar("OnCatapult", false);
+            g.SetGraphVar("CatLaunching", false);
+            g.SetGraphVar("CatLockTime", Now(g));
+            g.Set(RB, "constraints", null, RigidbodyConstraints.None);
+            g.Set(RB, "linearVelocity", null, thrown);
+            // (the throw is not a load on the airframe: SaccEntity is invincible for a moment here)
+            g.SetGraphVar("LastVel", thrown);
+        }
+
+        /// <summary>
+        /// Every frame with the catapult picked on a dial. Not on it: locks on when the vehicle's catapult point is over
+        /// the catapult's shuttle, slow, on the ground and within the original's angle of its heading (Sacc locks any
+        /// piloted vehicle that rolls over it; here only with the function picked, so a landing aircraft is left alone).
+        /// On it: the vehicle is carried by the shuttle, held still until the pull, and at the end of the stroke (the
+        /// catapult's own animation switches its trigger off) thrown at the speed the shuttle had.
+        /// </summary>
+        static void CatapultFrame(GraphWriter g, Val dt, Val now, Val picked)
+        {
+            var cat = g.Keep(g.ObjVar("Catapult", TF));
+            var catPos = g.Keep(g.Get(TF, "position", cat));
+            g.If(g.B("OnCatapult"), () =>
+            {
+                var place = g.Keep(catPos + g.GraphVar("CatOffset", V3T));
+                g.Set(TF, "position", null, place);
+                g.Set(RB, "position", null, place);
+                g.If(g.And(g.B("CatLaunching"), g.Not(g.Get(GO, "activeInHierarchy", g.Get(TF, "gameObject", cat)))), () =>
+                    CatapultRelease(g, g.Scale(catPos - g.GraphVar("CatLast", V3T), 1f / g.Max(dt, 0.001f))));
+                g.SetGraphVar("CatLast", catPos);
+            }, () =>
+            {
+                var apart = g.Keep(g.Get(TF, "position", g.ObjVar("CatapultPoint", TF)) - catPos);
+                var over = g.And(g.Less(g.Magnitude(g.V3(g.X(apart), 0f, g.Z(apart))), 2f), g.Less(g.Abs(g.Y(apart)), 4f));
+                var aligned = g.Less(g.Angle(g.Get(TF, "forward"), g.Get(TF, "forward", cat)), g.P("CatapultAngle"));
+                var ready = g.And(g.And(picked, g.B("Taxiing")), g.And(g.Less(g.Magnitude(g.Get(RB, "linearVelocity")), 8f),
+                    g.And(g.Greater(now - g.F("CatLockTime"), 3f), g.Get(GO, "activeInHierarchy", g.Get(TF, "gameObject", cat)))));
+                g.If(g.And(ready, g.And(over, aligned)), () =>
+                {
+                    g.SetGraphVar("OnCatapult", true);
+                    g.SetGraphVar("CatLaunching", false);
+                    g.Set(RB, "linearVelocity", null, Vector3Zero(g));
+                    g.Set(RB, "angularVelocity", null, Vector3Zero(g));
+                    // turned to the catapult's heading (its own pitch kept: nose and main wheels differ), its catapult
+                    // point over the shuttle, at the height it stands at
+                    var mine = g.Keep(g.Get(TF, "eulerAngles"));
+                    var its = g.Keep(g.Get(TF, "eulerAngles", cat));
+                    var height = g.Keep(g.Y(g.Get(TF, "position")));
+                    g.Set(TF, "eulerAngles", null, g.V3(g.X(mine), g.Y(its), g.Z(its)));
+                    var stood = g.Keep(g.Get(TF, "position") - g.Get(TF, "position", g.ObjVar("CatapultPoint", TF)));
+                    var to = g.Keep(g.V3(g.X(catPos) + g.X(stood), height, g.Z(catPos) + g.Z(stood)));
+                    g.Set(TF, "position", null, to);
+                    g.Set(RB, "position", null, to);
+                    g.Set(RB, "rotation", null, g.Get(TF, "rotation"));
+                    g.SetGraphVar("CatOffset", to - catPos);
+                    g.SetGraphVar("CatLast", catPos);
+                    g.Set(RB, "constraints", null, RigidbodyConstraints.FreezeAll);
+                    Play(g, "CatapultLockSound");
+                    Say(g, "catapult", "1");
+                });
+            });
+        }
+
+        /// <summary>The pull with the catapult picked, locked on: the catapult fires (every client plays its stroke).</summary>
+        static void CatapultPress(GraphWriter g)
+        {
+            g.If(g.And(g.B("OnCatapult"), g.Not(g.B("CatLaunching"))), () =>
+            {
+                g.SetGraphVar("CatLaunching", true);
+                g.SetGraphVar("CatLast", g.Get(TF, "position", g.ObjVar("Catapult", TF)));
+                g.Do(AN, "SetTrigger", new[] { typeof(string) }, g.ObjVar("CatapultAnimator", AN), "launch");
+                AnimTriggerNamed(g, g.ObjVar("CatapultTriggerName", typeof(string)));
+                Say(g, "catapult", "2");
+            });
         }
 
         // ---- engine (DFUNC_ToggleEngine) -------------------------------------------------------------------------
@@ -731,7 +887,7 @@ namespace FlightWorld.FlightGraphs
         /// size of the line, in range, in sight) takes as many bullets as the damage particles fire in that time, at
         /// half of them hitting. Hits on one vehicle are sent at most five times a second.
         /// </summary>
-        static void GunScan(GraphWriter g, Val dt)
+        static void GunScan(GraphWriter g, Val dt, Func<Val> whoIsMe = null)
         {
             var scan = g.SetGraphVar("GunScan", g.F("GunScan") + dt);
             g.If(g.Greater(scan, 0.1f), () =>
@@ -740,7 +896,8 @@ namespace FlightWorld.FlightGraphs
                 var muzzle = g.Keep(g.ObjVar("GunMuzzle", TF));
                 var from = g.Keep(g.Get(TF, "position", muzzle));
                 var line = g.Keep(g.Get(TF, "forward", muzzle));
-                var me = g.Keep(Self(g));
+                // (the vehicle the gun is on is never its own target: a gunner's graph sits on a part of it)
+                var me = g.Keep(whoIsMe != null ? whoIsMe() : Self(g));
                 g.SetGraphVar("GunBestFound", false);
                 g.SetGraphVar("GunBestAlong", g.P("GunRange"));
                 g.ForEach(Aircraft(g), GO, other =>
@@ -847,6 +1004,29 @@ namespace FlightWorld.FlightGraphs
                 g.If(g.Not(Held(prefix)), () => g.SetGraphVar(prefix + "Next", 0f));
             }
 
+            // catapult
+            g.If(g.ObjVar("HasCatapult", typeof(bool)), () => CatapultFrame(g, dt, now, Either("Catapult")));
+
+            // boosts: a push along each boost point while its trigger is held and it lasts; it fills again over ten seconds
+            for (int i = 1; i <= 3; i++)
+            {
+                int n = i;
+                var boosting = g.Keep(g.And(Held($"Boost{n}"), g.Greater(g.F($"Boost{n}Left"), 0f)));
+                g.If(boosting, () =>
+                {
+                    g.SetGraphVar($"Boost{n}Left", g.Max(g.F($"Boost{n}Left") - dt / g.P($"Boost{n}Seconds"), 0f));
+                    var point = g.Keep(g.ObjVar($"Boost{n}Point", TF));
+                    g.Do(RB, "AddForceAtPosition", new[] { V3T, V3T, typeof(ForceMode) }, null,
+                        g.Scale(g.Get(TF, "forward", point), g.P($"Boost{n}Accel") * dt), g.Get(TF, "position", point), ForceMode.VelocityChange);
+                }, () => g.SetGraphVar($"Boost{n}Left", g.Min(g.F($"Boost{n}Left") + dt * 0.1f, 1f)));
+                g.If(g.Not(g.Same(boosting, g.B($"Boost{n}On"))), () =>
+                {
+                    g.SetGraphVar($"Boost{n}On", boosting);
+                    BoostShow(g, n, boosting);
+                    Say(g, "boost", g.Concat(n + "|", g.Select(boosting, "1", "0", typeof(string))));
+                });
+            }
+
             // cruise: the set speed follows the hand while its trigger is held, 250 m/s for every metre
             var cruiseLeft = g.Keep(g.And(Picked(g, "L", "CruiseSlot"), g.Greater(g.F("TrigL"), 0.75f)));
             g.If(g.And(g.B("CruiseOn"), g.Or(cruiseLeft, g.And(Picked(g, "R", "CruiseSlot"), g.Greater(g.F("TrigR"), 0.75f)))), () =>
@@ -911,6 +1091,16 @@ namespace FlightWorld.FlightGraphs
         static void FunctionsTick(GraphWriter g)
         {
             CanopyWatch(g);
+            // the fuel gauge (SAV_EffectsController's "fuel")
+            AnimFloat(g, "fuel", g.F("FuelLeft") / g.Max(g.P("Fuel"), 0.001f));
+            // resupply: once a second while standing (or floating) within 250 m of where the vehicle parks
+            var supply = g.SetGraphVar("ResupplyTimer", g.F("ResupplyTimer") + 0.25f);
+            g.If(g.Greater(supply, 0.99f), () =>
+            {
+                g.SetGraphVar("ResupplyTimer", 0f);
+                g.If(g.And(g.And(g.Or(g.B("Taxiing"), g.B("Floating")), g.Less(g.Magnitude(g.Get(RB, "linearVelocity")), 5f)),
+                        g.Less(g.Distance(g.Get(TF, "position"), g.GraphVar("SpawnPosition", V3T)), 250f)), () => ResupplyStep(g, true));
+            });
             g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("HudHold", GO), g.B("AltHoldOn"));
             g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("HudLimit", GO), g.B("LimitsOn"));
             g.If(g.B("Advanced"), () =>
@@ -924,6 +1114,9 @@ namespace FlightWorld.FlightGraphs
                 ShowAll(g, "AgmLit", g.B("AGMLocked"));
                 var format = new[] { typeof(string), typeof(object) };
                 ShowAll(g, "LimitsLit", g.B("LimitsOn"));
+                for (int i = 1; i <= 4; i++) ShowAll(g, $"Toggle{i}Lit", g.B($"Toggle{i}On"));
+                ShowAll(g, "HandlingLit", g.B("HandlingOn"));
+                ShowAll(g, "CatapultLit", g.B("OnCatapult"));
                 foreach (var (text, count) in new[] { ("AAMText", "AAMCount"), ("AGMText", "AGMCount"), ("BombText", "BombCount"), ("Bomb2Text", "Bomb2Count"), ("FlareText", "FlareCount") })
                     g.Set(TXT, "text", g.ObjVar(text, TXT), g.Call(typeof(string), "Format", format, null, "{0:F0}", g.F(count)));
                 g.Set(TXT, "text", g.ObjVar("CruiseText", TXT), g.Select(g.B("CruiseOn"),
@@ -949,6 +1142,17 @@ namespace FlightWorld.FlightGraphs
             g.If(Picked(g, side, "AamSlot"), () => AAMPress(g));
             g.If(Picked(g, side, "AgmSlot"), () => AGMPress(g));
             g.If(Picked(g, side, "LimitsSlot"), () => LimitsPress(g));
+            for (int i = 1; i <= 4; i++)
+            {
+                int n = i;
+                g.If(Picked(g, side, $"Toggle{n}Slot"), () =>
+                {
+                    PilotToggle(g, n, g.Not(g.B($"Toggle{n}On")));
+                    Say(g, "toggle", g.Concat(n + "|", g.Select(g.B($"Toggle{n}On"), "1", "0", typeof(string))));
+                });
+            }
+            g.If(Picked(g, side, "HandlingSlot"), () => g.SetGraphVar("HandlingOn", g.Not(g.B("HandlingOn"))));
+            g.If(g.And(Picked(g, side, "CatapultSlot"), g.ObjVar("HasCatapult", typeof(bool))), () => CatapultPress(g));
         }
 
         /// <summary>
@@ -992,6 +1196,27 @@ namespace FlightWorld.FlightGraphs
                         AnimBool(g, "hookdown", On(2));
                     });
                     g.If(g.Same(kind, "hooked"), () => AnimTrigger(g, "hooked"));
+                    g.If(g.Same(kind, "resupply"), () => ResupplyStep(g, false));
+                    g.If(g.And(g.Same(kind, "catapult"), g.Same(Arg(2), "2")), () =>
+                    {
+                        Wake(g);
+                        g.Do(AN, "SetTrigger", new[] { typeof(string) }, g.ObjVar("CatapultAnimator", AN), "launch");
+                        AnimTriggerNamed(g, g.ObjVar("CatapultTriggerName", typeof(string)));
+                    });
+                    for (int i = 1; i <= 4; i++)
+                    {
+                        int n = i;
+                        g.If(g.And(g.Same(kind, "toggle"), g.Same(Arg(2), n.ToString())), () => PilotToggle(g, n, On(3)));
+                    }
+                    for (int i = 1; i <= 3; i++)
+                    {
+                        int n = i;
+                        g.If(g.And(g.Same(kind, "boost"), g.Same(Arg(2), n.ToString())), () =>
+                        {
+                            Wake(g);
+                            BoostShow(g, n, On(3));
+                        });
+                    }
                     g.If(g.Same(kind, "smoke"), () =>
                     {
                         Wake(g);

@@ -159,6 +159,8 @@ namespace FlightWorld.FlightGraphs
                 var facing = spawn != null ? spawn.transform.rotation : Quaternion.identity;
                 float ground = origin.y - 0.1f;
                 SaccMaterials.Unconverted.Clear();
+                // the catapult first: the vehicles that can use it are given it as they are built
+                BuildCatapult(signs, origin, report);
                 // Build each one where it stands in its prefab, then park them in rows by their real sizes.
                 var built = new List<(int row, Built vehicle)>();
                 foreach (var (prefab, name, row) in Fleet)
@@ -276,6 +278,8 @@ namespace FlightWorld.FlightGraphs
             var seats = root.GetComponentsInChildren<SaccVehicleSeat>(true)
                 .Select(s => (go: s.gameObject, pilot: s.IsPilotSeat, eye: s.TargetEyePosition, enable: s.EnableInSeat ?? new GameObject[0])).ToList();
             if (!seats.Any(s => s.pilot)) throw new Exception($"{prefabName}: no pilot seat");
+            // gunner seats (SaccGunnerSeats.cs): read now, while their passenger functions are still on them
+            var gunners = ReadGunners(root, name, report);
             var extraSeatsFor = special.extraSeats;
             for (int i = 0; i < extraSeatsFor.Length; i++)
             {
@@ -403,6 +407,10 @@ namespace FlightWorld.FlightGraphs
             foreach (var stub in root.GetComponentsInChildren<MonoBehaviour>(true).Where(IsStandIn))
                 foreach (var field in stub.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {
+                    // SAV_SoundController only re-pitches its DopplerSounds; the animator starts them by switching their
+                    // object on (the guns' loops: "PlaneGun" on "gunfiring"), so they keep playing when switched on.
+                    // (Until 2026-11-24 they were silenced with the script-started sounds: no gun made a sound.)
+                    if (field.Name == "DopplerSounds") continue;
                     if (field.FieldType == typeof(AudioSource) && field.GetValue(stub) is AudioSource one && one) scripted.Add(one);
                     else if (field.FieldType == typeof(AudioSource[]) && field.GetValue(stub) is AudioSource[] many)
                         foreach (var item in many) if (item) scripted.Add(item);
@@ -850,7 +858,7 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("GearLit", gearLit);
             variables.declarations.Set("FlapsLit", flapsLit);
             variables.declarations.Set("ThrustersOnDial", dialLeft.Slot("thrust") >= 0f || dialRight.Slot("thrust") >= 0f);
-            foreach (var fn in new[] { "engine", "canopy", "cruise", "althold", "hook", "smoke", "agm", "limits" })
+            foreach (var fn in new[] { "engine", "canopy", "cruise", "althold", "hook", "smoke", "agm", "limits", "toggle1", "toggle2", "toggle3", "toggle4", "handling", "catapult" })
             {
                 var marks = new AotList();
                 foreach (var lit in dialLeft.Lit(fn).Concat(dialRight.Lit(fn)).Where(o => o)) { lit.SetActive(false); marks.Add(lit); }
@@ -975,6 +983,7 @@ namespace FlightWorld.FlightGraphs
                 if (controller != null && controller != root && !mesh.transform.IsChildOf(controller.transform)) resting.Add(controller);
             variables.declarations.Set("RestingObjects", resting);
             root.AddComponent<ScriptMachine>().nest.SwitchToMacro(graph);
+            BuildGunners(root, gunners, body, animator, report);
 
             // the renderers whose level of detail the graph biases by distance: the meshes worth it
             var lodRenderers = new AotList();
@@ -1072,12 +1081,20 @@ namespace FlightWorld.FlightGraphs
                 case "DFUNC_AGM": return "agm";
                 case "DFUNC_Bomb": return "bomb";
                 case "DFUNC_Flares": return "flares";
+                case "DFUNC_Catapult": return "catapult";
+                case "DFUNC_ToggleBool": return "toggle";       // numbered toggle1.. as found (ReadDial)
+                case "DFUNC_CarBoost": return "boost";          // numbered boost1..
+                case "DFUNC_ToggleHandling":                    // only the thrust reverser kind is worked
+                    return function.GetType().GetField("floatSGVNames")?.GetValue(function) is string[] names && names.Contains("ThrottleStrength") ? "handling" : "";
                 default: return "";
             }
         }
 
         /// <summary>Every kind the dials can hold, in the order their slot variables are written.</summary>
-        static readonly string[] DialKinds = { "gear", "flaps", "brake", "vtol", "thrust", "engine", "canopy", "cruise", "althold", "hook", "smoke", "gun", "aam", "agm", "bomb", "bomb2", "flares", "limits" };
+        static readonly string[] DialKinds = { "gear", "flaps", "brake", "vtol", "thrust", "engine", "canopy", "cruise", "althold", "hook", "smoke", "gun", "aam", "agm", "bomb", "bomb2", "flares", "limits",
+            "toggle1", "toggle2", "toggle3", "toggle4", "boost1", "boost2", "boost3", "handling", "catapult" };
+        /// <summary>How many of the numbered kinds a vehicle's dials can hold.</summary>
+        public const int MaxToggles = 4, MaxBoosts = 3;
 
         /// <summary>Read a dial as SaccEntity sets it up when it starts (its selection maths included).</summary>
         static Dial ReadDial(SaccEntity entity, bool left, Dictionary<string, MonoBehaviour> firstOfKind)
@@ -1109,6 +1126,13 @@ namespace FlightWorld.FlightGraphs
                 string kind = KindOf(function);
                 // (a second launcher of the bomb kind - rockets beside bombs, a cannon beside bombs - is a launcher of its own)
                 if (kind == "bomb" && firstOfKind.TryGetValue("bomb", out var firstBomb) && firstBomb != function) kind = "bomb2";
+                // (switches and boosts: each one its own, numbered across both dials)
+                if (kind == "toggle" || kind == "boost")
+                {
+                    int most = kind == "toggle" ? MaxToggles : MaxBoosts, number = 1;
+                    while (number <= most && firstOfKind.TryGetValue(kind + number, out var taken) && taken != function) number++;
+                    kind = number <= most ? kind + number : "";
+                }
                 if (kind.Length > 0 && !dial.slots.ContainsKey(kind)) dial.slots[kind] = i;
                 if (kind.Length > 0 && !firstOfKind.ContainsKey(kind)) firstOfKind[kind] = function;
                 if (!dial.lit.TryGetValue(kind, out var list)) dial.lit[kind] = list = new List<GameObject>();

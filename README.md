@@ -39,9 +39,17 @@ copyright notices (linked above), which must be kept with any copy. The map data
 - The SS-1 boat, moored in the creek (blue BOAT DOCK sign).
 - Seats for passengers, head-up displays and instruments, gear, flaps, canopies, crash and respawn, sounds heard by
   everyone, and notice boards with the controls and credits.
+- Sacc's dial functions on the advanced controls: engine start and stop, cruise, altitude hold, flight limits, hook
+  and arresting cables, catapult, smoke, flares, gun, missiles, guided bombs, bombs, rockets and cannons, switches
+  (lights, doors, lasers), boosters and reverse thrust.
+- Gunner seats with Sacc's turrets: door guns that follow the gunner's hand, stick-turned turrets on the tank and
+  the boat, each with its own guns, rockets or cannon and searchlight.
+- Fuel, and resupply (rearm, refuel, repair) on the ground near a vehicle's parking spot.
+- For the cars: horn, headlights, boost, jump, air control and reset.
 
-Not ported (yet): weapons, wind, fuel, engine start-up, autopilots, and the A320's flight management systems and
-cockpit switches.
+Not ported (yet): wind, the grappling hook, the SX-TR3's laser and tractor beam, co-pilots taking control, the
+gunners' guided bomb, smoke screen and zoom sights, manual gears, the helmet sight, race courses, the AA gun and
+hand-held weapons, and the A320's flight management systems and cockpit switches.
 
 ## How it works
 
@@ -51,7 +59,10 @@ hand: they are **generated from C#** in `Assets/Flight/Editor/`, which reads lik
 | Path | What it is |
 |---|---|
 | `Assets/Flight/Editor/FlightGraphs.cs` | Aircraft and boat: the port of SaccAirVehicle (lift, drag, AoA, thrust, VTOL, helicopters, floats, gear, flaps, brakes, G), effects, sound, HUD, gauges, the A320's displays, and the fleet clock |
-| `Assets/Flight/Editor/GroundGraphs.cs` | Cars and tank: SaccGroundVehicle and SaccWheel (engine, gearbox, suspension, tyres, tracks) |
+| `Assets/Flight/Editor/FlightGraphsFunctions.cs`, `FlightGraphsHands.cs`, `FlightGraphsWeapons.cs` | The advanced controls: Sacc's dial functions, fuel, resupply and catapult; the hand-held stick and throttle; the rounds in the air |
+| `Assets/Flight/Editor/GunnerGraphs.cs`, `SaccGunnerSeats.cs` | Gunner seats: one graph per seat for Sacc's hand turrets, stick turrets and the gunners' weapons |
+| `Assets/Flight/Editor/GroundGraphs.cs`, `GroundGraphsExtras.cs` | Cars and tank: SaccGroundVehicle and SaccWheel (engine, gearbox, suspension, tyres, tracks); horn, lights, boost, jump, air control, reset |
+| `Assets/Flight/Editor/SeatLegs.cs` | Seats set on their cushions and riders' legs kept inside each vehicle |
 | `Assets/Flight/Editor/SaccFleetBuilder.cs`, `SaccGroundBuilder.cs` | Build the vehicles from the original prefabs into the scene: read their settings, strip the VRChat scripts, convert materials, add seats, sync and the graphs, park them |
 | `Assets/Flight/Graphs/` | The generated graph assets |
 | `Assets/Flight/Shaders/` | Quest-friendly stand-ins for the vehicles' shaders (lit aircraft, glass, particles, HUD) |

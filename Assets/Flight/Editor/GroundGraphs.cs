@@ -22,7 +22,7 @@ namespace FlightWorld.FlightGraphs
     /// Simulate, Revs, GearRatioL/R, Clutch, BrakeInput, HandBrakeInput and VehicleSpeed; the wheels add the
     /// engine load they caused to EngineForceUsed (and each publishes its own WheelRPS, for a tank's tracks).
     /// </summary>
-    public static class GroundGraphs
+    public static partial class GroundGraphs
     {
         public const string CorePath = "Assets/Flight/Graphs/GroundCore.asset";
         public const string WheelPath = "Assets/Flight/Graphs/WheelCore.asset";
@@ -108,8 +108,14 @@ namespace FlightWorld.FlightGraphs
             g.Declare("SeatHome", Vector3.zero);
             g.Declare("SpawnPosition", Vector3.zero);
             g.Declare("SpawnRotation", Quaternion.identity);
+            DeclareExtras(g);
 
             // ---- remember the parking spot ------------------------------------------------------------
+            // a gunner aboard (GunnerGraphs.cs): its animator draws their gun's fire, so it must not be resting
+            var wakeEvent = g.Add(new CustomEvent());
+            g.Feed(wakeEvent, "name", "fw_wake");
+            g.On(wakeEvent, _ => Wake(g));
+
             g.On(new Start(), _ =>
             {
                 g.SetGraphVar("SpawnPosition", g.Get(TF, "position"));
@@ -165,6 +171,9 @@ namespace FlightWorld.FlightGraphs
                 g.On(g.Platform(unit), e =>
                     g.If(g.And(g.Same(g.EventOut(e, "Button Type", typeof(int)), 1), g.Same(g.EventOut(e, "Hand Side", typeof(int)), 0)), () =>
                         g.SetGraphVar("GripHandbrake", held)));
+
+            // ---- the driver's other functions: horn, lights, boost, jump, air control (GroundGraphsExtras.cs) ----
+            ExtrasEvents(g);
 
             // ---- taking the driver's seat: clicking it seats the player (the seat component does that) ----
             // (Not from the driver already in it: see SeatClicks in the aircraft graph.)
@@ -409,6 +418,10 @@ namespace FlightWorld.FlightGraphs
                 // (The seat is not slid to fit the driver any more: other clients draw a rider against their own copy of
                 // the seat, so a seat moved on the driver's client alone showed them off it. FleetParts.SeatFor.)
 
+                // The driver's client must own the car: a passenger seated first is made its "driver" by the client and
+                // takes it back every few seconds, and then the driver's throttle moves a copy that cannot move.
+                g.If(g.Not(g.Call(Sync, "_DoIOwn", Type.EmptyTypes, null)), () => g.Do(Sync, "_TakeOwnership", Type.EmptyTypes, null));
+
                 var velocity = g.Keep(g.Get(RB, "linearVelocity"));
                 var speed = g.Keep(g.Magnitude(velocity));
                 var handBrake = g.SetGraphVar("HandBrake", g.Clamp01(g.F("KeyHandbrake") + g.F("GripHandbrake")));
@@ -430,8 +443,10 @@ namespace FlightWorld.FlightGraphs
                 {
                     // -- car: throttle and brake; holding the brake at a standstill selects reverse, where the
                     //    two pedals swap (the original has a reverse toggle on a key / stick flick instead) --
-                    var throttleRaw = g.Keep(g.Clamp01(g.Max(g.F("KeyDrive"), 0f) + g.F("TriggerThrottle") + g.Max(g.F("StickRY"), 0f)));
-                    var brakeRaw = g.Keep(g.Clamp01(g.Max(-g.F("KeyDrive"), 0f) + g.F("TriggerBrake") + g.Max(-g.F("StickRY"), 0f)));
+                    // (while the right grip holds air control, the right stick is not throttle, brake or steering)
+                    var stickFree = g.Keep(1f - g.F("AirHeld"));
+                    var throttleRaw = g.Keep(g.Clamp01(g.Max(g.F("KeyDrive"), 0f) + g.F("TriggerThrottle") + g.Max(g.F("StickRY"), 0f) * stickFree));
+                    var brakeRaw = g.Keep(g.Clamp01(g.Max(-g.F("KeyDrive"), 0f) + g.F("TriggerBrake") + g.Max(-g.F("StickRY"), 0f) * stickFree));
                     var slow = g.Keep(g.Less(speed, 1.5f));
                     g.If(g.B("Reversing"), () =>
                         g.If(g.And(g.And(g.Greater(throttleRaw, 0.5f), g.Less(brakeRaw, 0.1f)), slow), () => SetReversing(g, false)),
@@ -462,7 +477,7 @@ namespace FlightWorld.FlightGraphs
                         g.Select(g.Less(autoSteer, 0f), bySpeed, g.Max(bySpeed, autoSteer + g.P("DesktopMinSteering")))));
                     var limitLower = g.Keep(g.Select(unlimited, -1f,
                         g.Select(g.Less(autoSteer, 0f), g.Min(-bySpeed, autoSteer - g.P("DesktopMinSteering")), -bySpeed)));
-                    var stick = g.Keep(g.Clamp(g.F("StickSteerL") + g.F("StickSteerR"), -1f, 1f));
+                    var stick = g.Keep(g.Clamp(g.F("StickSteerL") * stickFree + g.F("StickSteerR") * stickFree, -1f, 1f));
                     var keys = g.Keep(g.F("KeySteer"));
                     g.If(g.Greater(g.Abs(stick), 0.05f), () =>
                         g.SetGraphVar("YawInput", g.Select(g.Greater(stick, 0f), stick * limitUpper, -stick * limitLower)),
@@ -721,6 +736,7 @@ namespace FlightWorld.FlightGraphs
         static void Leave(GraphWriter g)
         {
             g.SetGraphVar("Driving", false);
+            ExtrasRelease(g);
             BlockSticks(g, false);
             Park(g);
             Unpiloted(g);

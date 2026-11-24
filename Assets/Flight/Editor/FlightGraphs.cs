@@ -34,6 +34,7 @@ namespace FlightWorld.FlightGraphs
                 BuildTeleportSign().Save(TeleportPath, report);
                 BuildFleetWatch().Save(WatchPath, report);
                 BuildWeaponsWorld().Save(WeaponsPath, report);
+                BuildGunner().Save(GunnerPath, report);
                 AssetDatabase.SaveAssets();
                 report.AppendLine("OK");
             }
@@ -138,7 +139,7 @@ namespace FlightWorld.FlightGraphs
                 g.SetGraphVar("SpawnPosition", g.Get(TF, "position"));
                 g.SetGraphVar("SpawnRotation", g.Get(TF, "rotation"));
                 g.SetGraphVar("Health", g.P("FullHealth"));
-                // (fuel is not modelled; the vehicles' animators want some before rotors that ran down start again)
+                // (full tanks: FunctionsHome sets the fuel; the animators want some before rotors that ran down start again)
                 AnimFloat(g, "fuel", 1f);
                 g.SetGraphVar("SeatHome", g.Get(TF, "localPosition", PilotSeatTransform(g)));
                 g.SetGraphVar("LastPosition", g.Get(TF, "position"));
@@ -280,6 +281,8 @@ namespace FlightWorld.FlightGraphs
             });
             // the hands, once the app has put the hand objects on them this frame (the fleet watch's LateUpdate)
             g.On(Custom(g, "fw_hands"), _ => g.If(g.And(g.B("Piloting"), g.B("Advanced")), () => Hands(g)));
+            // a gunner aboard (GunnerGraphs.cs): its animator draws their gun's fire, so it must not be resting
+            g.On(Custom(g, "fw_wake"), _ => Wake(g));
 
             // ---- taking the pilot's seat: clicking it seats the player (the seat component does that) -------
             // (A click on a seat somebody else is in does not seat you, so it must not make you the pilot either.
@@ -373,6 +376,14 @@ namespace FlightWorld.FlightGraphs
                             () => g.If(g.Not(g.And(mine, g.ObjVarOf(watch, "HasPilotVehicle", typeof(bool)))), () => Fly(g, true)),
                             () => g.If(g.And(mine, g.ObjVarOf(watch, "HasPilotVehicle", typeof(bool))), () => Fly(g, false)));
                     });
+
+                    // The pilot's client must own what it flies: only the owner's body moves, so with ownership elsewhere
+                    // the pilot's thrust and controls act on a copy that cannot move. A client that seats a passenger
+                    // before the pilot makes that passenger the vehicle's driver and takes it back every few seconds
+                    // (the user, 2026-11-24: "the left blue jet won't take off if there is a passenger"); so the pilot
+                    // asks again whenever it has lost it, at most ten times a second.
+                    g.If(g.And(g.B("Piloting"), g.Not(g.Call(Sync, "_DoIOwn", Type.EmptyTypes, null))), () =>
+                        g.Do(Sync, "_TakeOwnership", Type.EmptyTypes, null));
 
                     // Back from a doze (see FlightGraphs.BuildFleetWatch): the time away is not movement, and the
                     // watch may have changed how coarsely the vehicle is drawn meanwhile.
@@ -779,7 +790,7 @@ namespace FlightWorld.FlightGraphs
                         Dial("altitude100", feet / 100f);
                         Dial("altitude1000", feet / 1000f);
                         Dial("altitude10000", feet / 10000f);
-                        Dial("fuel", 1f);
+                        Dial("fuel", g.Select(g.B("Piloting"), g.F("FuelLeft") / g.Max(g.P("Fuel"), 0.001f), 1f));
                         Dial("speed", airspeed);
                         Dial("engine", g.F("EngineOutput"));
                         Dial("slip", slip);
@@ -1348,8 +1359,12 @@ namespace FlightWorld.FlightGraphs
             });
             // ---- after the app has moved the hand objects to the hands this frame: the vehicle the player flies reads them ----
             g.On(new LateUpdate(), _ =>
+            {
                 g.If(g.And(g.ObjVar("HasPilotVehicle", typeof(bool)), g.ObjVar("AdvancedControls", typeof(bool))), () =>
-                    Trigger(g, g.ObjVar("PilotVehicle", GO), "fw_hands")));
+                    Trigger(g, g.ObjVar("PilotVehicle", GO), "fw_hands"));
+                // the gunner seat the local player is in (GunnerGraphs.cs): its turret follows the hand
+                g.If(g.ObjVar("HasGunner", typeof(bool)), () => Trigger(g, g.ObjVar("Gunner", GO), "fw_gun"));
+            });
             g.On(g.Platform("OnJsReturnValue", ("Return ID", "fw_doze")), e =>
                 g.SetObjVar("DozeOn", g.Greater(g.PlatformValue("ParseStringInvariant", "float", typeof(float),
                     ("string", g.EventOut(e, "Data", typeof(string)))), 0.5f)));
@@ -1457,7 +1472,18 @@ namespace FlightWorld.FlightGraphs
             var inRoll = Slew("InRoll", g.Clamp(g.F("KeyRoll") + g.F("StickRoll"), -1f, 1f), "AHOutRoll");
             var throttleRate = g.Clamp(g.F("KeyThrottle") + g.F("StickThrottle"), -1f, 1f);
             var manualThrottle = g.SetGraphVar("Throttle", g.Clamp01(g.F("Throttle") + throttleRate * g.P("KeyboardThrottleSens") * dt));
-            var throttle = g.Keep(CruiseThrottle(g, manualThrottle, speed, dt));
+            var throttleAsked = g.Keep(CruiseThrottle(g, manualThrottle, speed, dt));
+            // -- fuel (SaccAirVehicle.FuelEvents): burnt by the throttle with the engine on, never less than its idle
+            //    share, and three times as fast (FuelConsumptionABMulti) in full afterburner; under LowFuel the throttle
+            //    is held down with what is left, and with none there is no thrust. Only a crewed vehicle burns any. --
+            var burnPoint = g.Keep(g.P("ThrottleAfterburnerPoint"));
+            var dry = g.Min(throttleAsked, burnPoint) / g.Max(burnPoint, 0.0001f);
+            var wet = g.Max(throttleAsked - burnPoint, 0f) / g.Max(1f - burnPoint, 0.0001f);
+            var burning = g.And(g.Not(g.B("EngineOff")), g.Or(g.B("Piloting"), g.B("TestPilot")));
+            var burn = g.Select(burning, g.Max(dry, g.P("MinFuelConsumption")) * g.P("FuelConsumption")
+                                         + wet * g.P("FuelConsumption") * (g.P("FuelConsumptionABMulti") - 1f), 0f);
+            var fuelLeft = g.SetGraphVar("FuelLeft", g.Max(g.F("FuelLeft") - burn * dt, 0f));
+            var throttle = g.Keep(g.Min(throttleAsked, fuelLeft / g.Max(g.P("LowFuel"), 0.0001f)));
             // with the engine off (or starting) it gives nothing, whatever the lever says (DFUNC_ToggleEngine)
             var engineWanted = g.Keep(g.Select(g.B("EngineOff"), 0f, throttle));
             var brake = g.SetGraphVar("Brake", g.Max(g.F("KeyBrake"), g.F("TriggerBrake")));
@@ -1553,8 +1579,10 @@ namespace FlightWorld.FlightGraphs
 
             // -- thrust, with the afterburner as the last part of the throttle travel --
             var point = g.P("ThrottleAfterburnerPoint");
-            var thrust = g.Keep((g.Min(engine, point) / point * g.P("ThrottleStrength")
-                                 + g.Max(engine - point, 0f) / (1f - point) * g.P("ThrottleStrength") * (g.P("AfterburnerThrustMulti") - 1f)) * inWater);
+            // (the thrust reverser, DFUNC_ToggleHandling, multiplies it while on: -1 on the SD-1)
+            var strength = g.Keep(g.P("ThrottleStrength") * g.Select(g.B("HandlingOn"), g.P("HandlingRatio"), 1f));
+            var thrust = g.Keep((g.Min(engine, point) / point * strength
+                                 + g.Max(engine - point, 0f) / (1f - point) * strength * (g.P("AfterburnerThrustMulti") - 1f)) * inWater);
             var tilted = g.Select(vtolOnly, thrust, g.Lerp(thrust, thrust * g.P("VTOLThrottleStrengthMulti"), hovering));
             var thrustAlongAxis = g.Keep(g.Select(vtolOn, tilted * (closeness * g.P("VTOLGroundEffectStrength") + 1f), thrust));
             var radians = g.Keep(vtolDegrees * 0.0174532925f);

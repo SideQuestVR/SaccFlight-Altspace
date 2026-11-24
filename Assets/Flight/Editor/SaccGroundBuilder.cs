@@ -189,6 +189,10 @@ namespace FlightWorld.FlightGraphs
             var seats = root.GetComponentsInChildren<SaccVehicleSeat>(true)
                 .Select(s => (go: s.gameObject, pilot: s.IsPilotSeat, eye: s.TargetEyePosition, enable: s.EnableInSeat ?? new GameObject[0])).ToList();
             if (!seats.Any(s => s.pilot)) throw new Exception($"{prefabName}: no driver's seat");
+            // gunner seats (SaccGunnerSeats.cs): read now, before the gunner dial objects are stripped
+            var gunners = SaccFleetBuilder.ReadGunners(root, name, report);
+            // the driver's horn, lights, boost, jump and air control (GroundGraphsExtras.cs), before the dial is stripped
+            var extras = ReadDriverExtras(root, entity, report, name);
             var inside = (entity.EnableInVehicle ?? new GameObject[0]).Concat(seats.Where(s => s.pilot).SelectMany(s => s.enable)).Where(o => o).Distinct().ToList();
             bool tankMode = ground.TankMode;
 
@@ -280,6 +284,7 @@ namespace FlightWorld.FlightGraphs
             foreach (var stub in root.GetComponentsInChildren<MonoBehaviour>(true).Where(m => m != null && m.GetType().Namespace == "SaccFlightAndVehicles"))
                 foreach (var field in stub.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
                 {
+                    if (field.Name == "DopplerSounds") continue;     // only re-pitched; the animator starts them (guns)
                     if (field.FieldType == typeof(AudioSource) && field.GetValue(stub) is AudioSource one && one) scripted.Add(one);
                     else if (field.FieldType == typeof(AudioSource[]) && field.GetValue(stub) is AudioSource[] many)
                         foreach (var item in many) if (item) scripted.Add(item);
@@ -657,10 +662,12 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("EngineSounds", engineList);
             variables.declarations.Set("ExplosionSound", bang);
             variables.declarations.Set("VehicleAnimator", animator);
+            foreach (var pair in extras) variables.declarations.Set(pair.Key, pair.Value ?? (object)FleetParts.Child(root, "No" + pair.Key).transform);
             var insideList = new AotList();
             foreach (var go in inside) if (go) insideList.Add(go);
             variables.declarations.Set("InVehicleObjects", insideList);
             root.AddComponent<ScriptMachine>().nest.SwitchToMacro(graph);
+            SaccFleetBuilder.BuildGunners(root, gunners, body, animator, report);
             FleetParts.WatchVariables(variables, root.GetComponent<ScriptMachine>(), bounds);
 
             int triangles = 0, lodMeshes = 0;
@@ -726,6 +733,71 @@ namespace FlightWorld.FlightGraphs
         }
 
         /// <summary>How long the vehicle's own "Explode" animation runs before it puts everything back.</summary>
+        /// <summary>
+        /// The driver's own dial functions that GroundGraphsExtras.cs works, read from the vehicle's SaccEntity dials and
+        /// extensions: horn, headlights, boost, jump and air control. Values for the vehicle's object variables.
+        /// </summary>
+        static Dictionary<string, object> ReadDriverExtras(GameObject root, SaccEntity entity, StringBuilder report, string name)
+        {
+            var all = (entity.Dial_Functions_L ?? new MonoBehaviour[0]).Concat(entity.Dial_Functions_R ?? new MonoBehaviour[0])
+                .Concat(entity.ExtensionUdonBehaviours ?? new MonoBehaviour[0]).Where(m => m != null).ToList();
+            var v = new Dictionary<string, object>();
+            var found = new List<string>();
+            var horn = all.OfType<DFUNC_Horn>().FirstOrDefault(h => h.Horn != null);
+            v["HasHorn"] = horn != null;
+            v["HornSound"] = horn != null ? horn.Horn : FleetParts.Child(root, "NoHorn").AddComponent<AudioSource>();
+            if (horn != null) { horn.Horn.playOnAwake = false; found.Add("horn"); }
+            // headlights: the first switch that switches objects (DFUNC_ToggleBool), as authored to start with
+            var lights = all.OfType<DFUNC_ToggleBool>().FirstOrDefault(t => (t.ToggleObjects != null && t.ToggleObjects.Any(o => o)) || !string.IsNullOrEmpty(t.AnimBoolName));
+            var lightObjects = new AotList();
+            if (lights != null) foreach (var o in lights.ToggleObjects ?? new GameObject[0]) if (o) { lightObjects.Add(o); o.SetActive(lights.OnDefault); }
+            v["HasLights"] = lights != null;
+            v["LightObjects"] = lightObjects;
+            v["LightBool"] = lights != null ? lights.AnimBoolName ?? "" : "";
+            if (lights != null) found.Add(lights.gameObject.name.Replace("DFUNC_", "").ToLowerInvariant());
+            // boost (DFUNC_CarBoost): a push of BoostForce (force type) or of the boost's extra engine power, as an
+            // acceleration along its point (or the vehicle), for BoostInSeconds, filling again over ResupplyTime
+            var boost = all.OfType<DFUNC_CarBoost>().FirstOrDefault();
+            v["HasBoost"] = boost != null;
+            v["BoostPoint"] = boost != null && boost.BoostPoint != null ? boost.BoostPoint : root.transform;
+            v["BoostAccel"] = boost == null ? 0f : boost.BoostType_Force ? boost.BoostForce : 8f;
+            v["BoostSeconds"] = boost != null ? Mathf.Clamp(boost.BoostInSeconds, 1f, 60f) : 10f;
+            v["BoostRefill"] = boost != null ? Mathf.Max(boost.ResupplyTime, 1f) : 10f;
+            v["BoostFloat"] = boost != null ? boost._BoostingAnimFloatName ?? "" : "";
+            if (boost != null) found.Add("boost");
+            // jump (DFUNC_CarJump)
+            var jump = all.OfType<DFUNC_CarJump>().FirstOrDefault();
+            v["HasJump"] = jump != null;
+            v["JumpImpulse"] = jump != null ? jump.JumpForce : 0f;
+            v["JumpHold"] = jump != null ? jump.HoldJumpForce : 0f;
+            v["JumpSeconds"] = jump != null ? Mathf.Max(jump.MaxJumpLengthSecs, 0.05f) : 0.2f;
+            v["JumpTrigger"] = jump != null ? jump.AnimatorTriggerName ?? "" : "";
+            v["JumpSound"] = jump != null && jump.JumpSound != null ? jump.JumpSound : FleetParts.Child(root, "NoJumpSound").AddComponent<AudioSource>();
+            if (jump != null) found.Add("jump");
+            // air control (SGV_AirControl)
+            var air = all.OfType<SGV_AirControl>().FirstOrDefault();
+            v["HasAirControl"] = air != null;
+            v["AirPitch"] = air != null ? air.RotationStrengthPitch : 0f;
+            v["AirRoll"] = air != null ? air.RotationStrengthRoll : 0f;
+            v["AirYaw"] = air != null ? air.RotationStrengthYaw : 0f;
+            if (air != null) found.Add("air control");
+            // reset (DFUNC_ResetCar)
+            var reset = all.OfType<DFUNC_ResetCar>().FirstOrDefault();
+            v["HasReset"] = reset != null;
+            v["ResetHeight"] = reset != null ? reset.AddedHeight : 0f;
+            v["ResetMaxSpeed"] = reset != null ? reset.AllowRespawnSpeed : 0f;
+            v["ResetStop"] = reset != null && reset.StopCarOnReset;
+            v["ResetStopSpin"] = reset != null && reset.StopRotatingOnReset;
+            if (reset != null) found.Add("reset");
+            foreach (var source in new[] { v["HornSound"], v["JumpSound"] }.OfType<AudioSource>()) source.playOnAwake = false;
+            // (anything kept that sits under a part stripped later - the dial objects - is moved out to the vehicle first)
+            foreach (var t in new[] { v["BoostPoint"], v["HornSound"], v["JumpSound"] }.Select(o => o is Component c ? c.transform : null).Where(t => t != null))
+                for (var up = t.parent; up != null && up != root.transform; up = up.parent)
+                    if (Dropped.Contains(up.name)) { t.SetParent(root.transform, true); break; }
+            report.AppendLine($"   [{name}] driver functions: {(found.Count > 0 ? string.Join(", ", found) : "none")}");
+            return v;
+        }
+
         static float ExplodeLength(Animator animator)
         {
             if (!(animator.runtimeAnimatorController is UnityEditor.Animations.AnimatorController controller)) return 0f;

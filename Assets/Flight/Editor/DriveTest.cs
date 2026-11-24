@@ -183,7 +183,8 @@ namespace FlightWorld.FlightGraphs
                     if (inStage > 5.5f && restState == "not checked")
                     {
                         // by now it should be resting: nothing running, held where it stands
-                        var wheelMachines = vehicle.GetComponentsInChildren<ScriptMachine>(true).Where(m => m.gameObject != vehicle).ToArray();
+                        // (not the gunner seats' graphs, which are never switched off: they only answer events)
+                        var wheelMachines = vehicle.GetComponentsInChildren<ScriptMachine>(true).Where(m => m.gameObject != vehicle && !m.name.StartsWith("Gunner ")).ToArray();
                         var animator = vehicle.GetComponent<Animator>();
                         restState = string.Format(culture, "awake {0}, body {1}, {2} of {3} wheel graphs running, animator {4}, Simulate {5}",
                             vars.Get("Awake"), body.constraints, wheelMachines.Count(m => m.enabled && m.gameObject.activeInHierarchy), wheelMachines.Length,

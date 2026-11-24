@@ -29,7 +29,7 @@ namespace FlightWorld.FlightGraphs
             "Hold the right grip and move your hand to work the cockpit's stick: tilt to pitch and roll, twist to yaw.\n" +
             "Double-tap the grip to keep hold of it. Hold the left grip and push the throttle forward or pull it back\n" +
             "(helicopters: raise or lower it). A thumbstick picks a function on its dial display; that side's trigger\n" +
-            "works it: gear, flaps, canopy, hook, smoke, cruise and altitude hold toggle; brakes, gun, flares and bombs\n" +
+            "works it: gear, flaps, canopy, hook, smoke, cruise, altitude hold and switches toggle; brakes, gun, flares and bombs\n" +
             "while held; thrust tilt, thrusters and the cruise speed by moving your hand. Engine: one pull starts it, a\n" +
             "double pull stops it. Missiles lock on a crewed aircraft ahead (a tone), then pull. Guided bomb: look at the\n" +
             "target, pull to lock, double pull to fire. A hook catches the cables across the runway ends.\n\n" +
@@ -55,7 +55,9 @@ namespace FlightWorld.FlightGraphs
             "Right trigger (or right stick forward) = accelerate\n" +
             "Left trigger (or a stick back) = brake; hold it at a standstill to reverse\n" +
             "Either stick sideways = steer    Left grip = handbrake\n" +
-            "Tank: the left and right sticks drive the left and right tracks\n\n" +
+            "Tank: the left and right sticks drive the left and right tracks\n" +
+            "Click the right stick = horn    Click the left stick = headlights    X = back on your wheels\n" +
+            "B = boost (Iccarus, Shoreline)    Y = jump, and right grip + sticks = turn in the air (Iccarus)\n\n" +
             "<b>Keyboard</b>\n" +
             "W / S = accelerate / brake and reverse    A / D = steer    Space = handbrake\n\n" +
             "<b>The boat</b>\n" +
@@ -63,6 +65,25 @@ namespace FlightWorld.FlightGraphs
             "Take the helm seat: left stick up / down = throttle, left / right = rudder\n" +
             "(keyboard: Shift / Ctrl and Q / E).\n\n" +
             "A vehicle left alone goes back to its place after a while.";
+
+        const string HowToCrew =
+            "<b>Gunners</b>\n" +
+            "The helicopters (SH-1, SH-2, SH-3), the boat, the truck and the tank have gunner seats: point at one\n" +
+            "and pull the trigger to sit, as for any seat. A door gun or turret points where your right hand points;\n" +
+            "the tank's turret and the boat's back gun turn with the right thumbstick.\n" +
+            "Right trigger and left trigger fire the seat's two weapons (gun, rockets or cannon).\n" +
+            "Click a thumbstick for its searchlight, door or hatch. The SF-2's back seat drops its rockets and bombs.\n\n" +
+            "<b>Fuel, ammunition and repairs</b>\n" +
+            "Fuel burns with the throttle, three times as fast in afterburner; the cockpit gauge shows it.\n" +
+            "Low on fuel the engine fades, and with none it stops.\n" +
+            "Standing on the ground near where your vehicle parks refuels, rearms and repairs it, second by second.\n\n" +
+            "<b>The catapult</b> (advanced controls: SF-1, Stunt Plane, Wasp)\n" +
+            "It is the grey track on the runway beside the yellow board, to the left of the parked aircraft.\n" +
+            "Pick CATAPULT on the left dial and roll slowly onto the start of the track, pointing along it: it locks on.\n" +
+            "Throttle up, then pull that trigger: 0 to 300 km/h in two seconds.\n\n" +
+            "<b>More on the dials</b> (advanced controls)\n" +
+            "Switches for lights, doors, lasers and cloaks toggle with a pull. Boosters (Wasp) push while held.\n" +
+            "Reverse thrust (SD-1, the boat) toggles with a pull.";
 
         const string Credits =
             "<b>Map</b>\n" +
@@ -94,6 +115,7 @@ namespace FlightWorld.FlightGraphs
             var howTo = Board(parent, "How To Fly", "HOW TO FLY", HowToFly, origin, origin + facing * new Vector3(-4.3f, 0f, 7.5f), ground, 0.125f);
             Board(parent, "Credits", "CREDITS", Credits, origin, origin + facing * new Vector3(4.3f, 0f, 7.5f), ground, 0.125f);
             Board(parent, "Cars And Boats", "CARS, TANK, BOAT", HowToDrive, origin, origin + facing * new Vector3(-12.6f, 0f, 5.2f), ground, 0.125f);
+            Board(parent, "Gunners And Fuel", "GUNNERS, FUEL, CATAPULT", HowToCrew, origin, origin + facing * new Vector3(17.0f, 0f, 3.0f), ground, 0.125f);
             AdvancedButton(howTo);
         }
 
@@ -257,6 +279,8 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("PilotVehicle", watch);          // (any object: it only counts while HasPilotVehicle is set)
             variables.declarations.Set("HasPilotVehicle", false);
             variables.declarations.Set("AdvancedControls", false);      // the board's button: Sacc's VR controls, for this player
+            variables.declarations.Set("Gunner", watch);                // the gunner seat the local player is in (only while HasGunner)
+            variables.declarations.Set("HasGunner", false);
             if (!variables.declarations.IsDefined("AdvancedButton")) variables.declarations.Set("AdvancedButton", watch);
             if (!variables.declarations.IsDefined("AdvancedLabel")) variables.declarations.Set("AdvancedLabel", null);
             // Where the local player's hands are. The app attaches an object to a hand bone by following the physics

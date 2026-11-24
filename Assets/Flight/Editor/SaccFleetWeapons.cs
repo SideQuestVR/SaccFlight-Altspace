@@ -52,6 +52,7 @@ namespace FlightWorld.FlightGraphs
                             v = silent;
                         }
                         else if (type == typeof(GameObject)) v = FleetParts.Child(unused, pair.Key);
+                        else if (type == typeof(Animator)) v = FleetParts.Child(unused, pair.Key).AddComponent<Animator>();
                         else throw new Exception("no stand-in for " + type.Name);
                     }
                     d.Set(pair.Key, v);
@@ -216,6 +217,68 @@ namespace FlightWorld.FlightGraphs
                 s.Ref(prefix + "Text", Ref<UnityEngine.UI.Text>(bomb, "HUDText_Bomb_ammo"));
             }
 
+            // ---- switches (DFUNC_ToggleBool): the vehicle animator's bool and/or objects switched, as authored to start with
+            for (int i = 1; i <= MaxToggles; i++)
+            {
+                var toggle = F("toggle" + i);
+                var objects = new AotList();
+                foreach (var o in Ref<GameObject[]>(toggle, "ToggleObjects") ?? new GameObject[0]) if (o != null) { objects.Add(o); o.SetActive(Flag(toggle, "OnDefault", false)); }
+                s.values[$"Toggle{i}Bool"] = Text(toggle, "AnimBoolName", "");
+                s.values[$"Toggle{i}Objects"] = objects;
+                s.values[$"Toggle{i}Default"] = Flag(toggle, "OnDefault", false);
+                var emitters = new AotList();
+                foreach (var ps in Ref<ParticleSystem[]>(toggle, "ToggleEmission") ?? new ParticleSystem[0])
+                    if (ps != null) { emitters.Add(ps); var emission = ps.emission; emission.enabled = Flag(toggle, "OnDefault", false); }
+                s.values[$"Toggle{i}Emission"] = emitters;
+            }
+            // ---- boosts (DFUNC_CarBoost on an aircraft: the Wasp's thrusters): a push along the boost point
+            for (int i = 1; i <= MaxBoosts; i++)
+            {
+                var boost = F("boost" + i);
+                s.values[$"Boost{i}Accel"] = boost == null ? 0f : Flag(boost, "BoostType_Force", false) ? Num(boost, "BoostForce", 10f) : 8f;
+                s.values[$"Boost{i}Seconds"] = Mathf.Clamp(Num(boost, "BoostInSeconds", 10f), 1f, 60f);
+                s.values[$"Boost{i}Float"] = Text(boost, "_BoostingAnimFloatName", "");
+                var point = Ref<Transform>(boost, "BoostPoint");
+                if (point != null) point.SetParent(root.transform, true);        // (it may sit under the function's object)
+                s.Ref($"Boost{i}Point", point != null ? point : root.transform);
+            }
+            // ---- thrust reverser (DFUNC_ToggleHandling setting ThrottleStrength: SD-1, SS-1): thrust times this while on
+            var handling = F("handling");
+            float handlingRatio = 1f;
+            if (handling != null && Ref<string[]>(handling, "floatSGVNames") is string[] handlingNames && Ref<float[]>(handling, "floatSGVToggledValues") is float[] handlingValues)
+            {
+                int at = Array.IndexOf(handlingNames, "ThrottleStrength");
+                var vehicleScript = root.GetComponentsInChildren<MonoBehaviour>(true).FirstOrDefault(m => m != null && m.GetType().GetField("ThrottleStrength") != null && m.GetType().Name.StartsWith("Sacc"));
+                float original = Num(vehicleScript, "ThrottleStrength", 0f);
+                if (at >= 0 && at < handlingValues.Length && Mathf.Abs(original) > 0.0001f) handlingRatio = handlingValues[at] / original;
+            }
+            s.values["HandlingRatio"] = handlingRatio;
+
+            // ---- resupply: how long each kind takes to fill from empty (the functions' FullReloadTimeSec)
+            s.values["GunReload"] = Num(gun, "FullReloadTimeSec", 20f);
+            s.values["AAMReload"] = Num(aam, "FullReloadTimeSec", 10f);
+            s.values["AGMReload"] = Num(agm, "FullReloadTimeSec", 8f);
+            s.values["BombReload"] = Num(F("bomb"), "FullReloadTimeSec", 8f);
+            s.values["Bomb2Reload"] = Num(F("bomb2"), "FullReloadTimeSec", 8f);
+            s.values["FlareReload"] = Num(F("flares"), "FullReloadTimeSec", 15f);
+            s.Ref("ReSupplySound", sound != null ? sound.ReSupply : null);
+
+            // ---- catapult (DFUNC_Catapult): the function's own object is the point of the vehicle that locks on
+            var catapult = F("catapult");
+            s.values["HasCatapult"] = catapult != null && catapultShuttle != null;
+            s.values["CatapultAngle"] = Num(catapult, "MaxAttachAngle", 15f);
+            s.values["CatapultTriggerName"] = Text(catapult, "AnimTriggerLaunchName", "catapultlaunch");
+            s.Ref("CatapultLockSound", Ref<AudioSource>(catapult, "CatapultLock"));
+            Transform catapultPoint = null;
+            if (catapult != null)
+            {
+                catapultPoint = FleetParts.Child(root, "CatapultPoint").transform;
+                catapultPoint.position = catapult.transform.position;
+            }
+            s.Ref("CatapultPoint", catapultPoint);
+            s.Ref("Catapult", catapult != null ? catapultShuttle : null);
+            s.Ref("CatapultAnimator", catapult != null ? catapultAnimator : null);
+
             // ---- flight limits (DFUNC_Limits): how hard the pilot can pull, eased off towards a G and an angle of attack
             var limits = F("limits");
             s.values["HasLimits"] = limits != null;
@@ -270,57 +333,10 @@ namespace FlightWorld.FlightGraphs
                 int count = Mathf.Min(Mathf.RoundToInt(Num(launcher, "Num" + templateField, 0f) * Mathf.Max(Num(launcher, "NumBomb_PerShot", 1f), 1f)), PoolSize[kind]);
                 s.values[Cap(kind) + "PoolSize"] = (float)(template != null ? count : 0);
                 if (template == null || count <= 0) continue;
-                var controller = template.GetComponents<MonoBehaviour>().FirstOrDefault(m => m != null && m.GetType().Name.EndsWith("Controller"));
-                var templateBody = template.GetComponent<Rigidbody>();
-                var bang = (Ref<AudioSource[]>(controller, "ExplosionSounds") ?? new AudioSource[0]).FirstOrDefault(a => a);
-                string bangPath = bang != null ? PathFrom(template.transform, bang.transform) : null;
                 var roundAsset = RoundPrefab(template, name, kind);
                 for (int i = 0; i < count; i++)
                 {
-                    // (a prefab instance: the scene keeps a reference and these few settings, not a copy of every
-                    // particle system; 220 copies took the scene file past 100 MB)
-                    var round = (GameObject)PrefabUtility.InstantiatePrefab(roundAsset, holder.transform);
-                    round.name = $"{Cap(kind)} {i + 1}";
-                    round.transform.localPosition = Vector3.zero;
-                    round.transform.localRotation = Quaternion.identity;
-                    round.SetActive(false);
-                    var v = round.AddComponent<Variables>().declarations;
-                    v.Set("Kind", code);
-                    foreach (var key in new[] { "Alive", "Exploded", "Listed", "HasTarget", "TargetIsVehicle", "Lost", "Mine", "Warned" }) v.Set(key, false);
-                    foreach (var key in new[] { "Age", "LastDist", "DumbTime", "Ended" }) v.Set(key, 0f);
-                    foreach (var key in new[] { "Velocity", "TargetPoint", "TargetOffset", "LastTargetPos", "LaunchPos" }) v.Set(key, Vector3.zero);
-                    v.Set("Target", root);
-                    v.Set("Shooter", root);
-                    v.Set("Home", holder.transform);
-                    var anim = round.GetComponentInChildren<Animator>(true);
-                    if (anim == null) anim = FleetParts.Child(round, "NoAnimator").AddComponent<Animator>();
-                    v.Set("Animator", anim);
-                    // its explosion sound, found in the copy where the template's was
-                    var bangCopy = bangPath != null ? round.transform.Find(bangPath)?.GetComponent<AudioSource>() : null;
-                    if (bangCopy == null) { bangCopy = FleetParts.Child(round, "NoSound").AddComponent<AudioSource>(); bangCopy.playOnAwake = false; }
-                    v.Set("Sound", bangCopy);
-                    var trails = new AotList();
-                    foreach (var trail in round.GetComponentsInChildren<TrailRenderer>(true)) trails.Add(trail);
-                    v.Set("Trails", trails);
-                    // flight: a Sacc missile or rocket is pushed by a ConstantForce its own animation turns on for its burn
-                    var (thrust, burn) = Burn(template, templateBody);
-                    v.Set("Thrust", thrust);
-                    v.Set("BurnTime", burn);
-                    v.Set("LaunchSpeed", Num(controller, "LaunchSpeed", 0f));      // (a cannon's shell leaves the barrel at this)
-                    v.Set("Drag", templateBody != null ? templateBody.linearDamping : 0.1f);
-                    v.Set("Gravity", templateBody == null || templateBody.useGravity);
-                    v.Set("AirPhysics", Num(controller, "AirPhysicsStrength", kind == "aam" ? 0.8f : kind == "agm" ? 3f : 0f));
-                    v.Set("RotSpeed", Num(controller, "RotSpeed", kind == "aam" ? 180f : 15f));
-                    v.Set("FlyStraight", Num(controller, "FlyStraightTime", 0.3f));
-                    v.Set("MaxLife", Num(controller, "MaxLifetime", kind == "aam" ? 12f : kind == "agm" ? 35f : 40f));
-                    v.Set("ExplodeLife", Num(controller, "ExplosionLifeTime", 10f));
-                    v.Set("ColliderActive", Num(controller, "ColliderActiveDistance", 8f));
-                    v.Set("TrackAngle", Num(controller, kind == "aam" ? "MaxTrackingAngle" : "LockAngle", 90f));
-                    v.Set("FlareEffect", Num(controller, "FlareEffect", 10f));
-                    v.Set("Proximity", Num(controller, "ProximityExplodeDistance", 20f));
-                    v.Set("Extension", Num(controller, "TargetVectorExtension", 1.2f));
-                    v.Set("Damage", Num(controller, kind == "aam" ? "AAMDamage" : kind == "agm" ? "AGMDamage" : "BombDamage", kind == "aam" ? 1f : 320f));
-                    v.Set("Splash", Num(controller, "SplashRadius", kind == "aam" ? 0f : 10f));
+                    var round = NewRound(roundAsset, template, holder.transform, root, kind, code, $"{Cap(kind)} {i + 1}");
                     pool.Add(round);
                     all.Add(round);
                 }
@@ -332,6 +348,64 @@ namespace FlightWorld.FlightGraphs
                                   { var d = grp.First().GetComponent<Variables>().declarations; return $"{grp.Key} {d.Get("Thrust")}/s2 for {d.Get("BurnTime")} s, {d.Get("LaunchSpeed")} m/s"; })) + ")" +
                               $"; gun {s.values["GunAmmoFull"]} s at {rate:F0}/s x {damage}");
             return s;
+        }
+
+        /// <summary>
+        /// One round of a pool: an instance of the launcher's round prefab under `holder`, switched off, with what the
+        /// weapons graph needs to fly it, read from the launcher's template (`kind`: aam, agm, bomb, bomb2; `code` its
+        /// number in the weapons graph).
+        /// </summary>
+        internal static GameObject NewRound(GameObject roundAsset, GameObject template, Transform holder, GameObject root, string kind, float code, string label)
+        {
+            var controller = template.GetComponents<MonoBehaviour>().FirstOrDefault(m => m != null && m.GetType().Name.EndsWith("Controller"));
+            var templateBody = template.GetComponent<Rigidbody>();
+            var bang = (Ref<AudioSource[]>(controller, "ExplosionSounds") ?? new AudioSource[0]).FirstOrDefault(a => a);
+            string bangPath = bang != null ? PathFrom(template.transform, bang.transform) : null;
+            // (a prefab instance: the scene keeps a reference and these few settings, not a copy of every
+            // particle system; 220 copies took the scene file past 100 MB)
+            var round = (GameObject)PrefabUtility.InstantiatePrefab(roundAsset, holder);
+            round.name = label;
+            round.transform.localPosition = Vector3.zero;
+            round.transform.localRotation = Quaternion.identity;
+            round.SetActive(false);
+            var v = round.AddComponent<Variables>().declarations;
+            v.Set("Kind", code);
+            foreach (var key in new[] { "Alive", "Exploded", "Listed", "HasTarget", "TargetIsVehicle", "Lost", "Mine", "Warned" }) v.Set(key, false);
+            foreach (var key in new[] { "Age", "LastDist", "DumbTime", "Ended" }) v.Set(key, 0f);
+            foreach (var key in new[] { "Velocity", "TargetPoint", "TargetOffset", "LastTargetPos", "LaunchPos" }) v.Set(key, Vector3.zero);
+            v.Set("Target", root);
+            v.Set("Shooter", root);
+            v.Set("Home", holder);
+            var anim = round.GetComponentInChildren<Animator>(true);
+            if (anim == null) anim = FleetParts.Child(round, "NoAnimator").AddComponent<Animator>();
+            v.Set("Animator", anim);
+            // its explosion sound, found in the copy where the template's was
+            var bangCopy = bangPath != null ? round.transform.Find(bangPath)?.GetComponent<AudioSource>() : null;
+            if (bangCopy == null) { bangCopy = FleetParts.Child(round, "NoSound").AddComponent<AudioSource>(); bangCopy.playOnAwake = false; }
+            v.Set("Sound", bangCopy);
+            var trails = new AotList();
+            foreach (var trail in round.GetComponentsInChildren<TrailRenderer>(true)) trails.Add(trail);
+            v.Set("Trails", trails);
+            // flight: a Sacc missile or rocket is pushed by a ConstantForce its own animation turns on for its burn
+            var (thrust, burn) = Burn(template, templateBody);
+            v.Set("Thrust", thrust);
+            v.Set("BurnTime", burn);
+            v.Set("LaunchSpeed", Num(controller, "LaunchSpeed", 0f));      // (a cannon's shell leaves the barrel at this)
+            v.Set("Drag", templateBody != null ? templateBody.linearDamping : 0.1f);
+            v.Set("Gravity", templateBody == null || templateBody.useGravity);
+            v.Set("AirPhysics", Num(controller, "AirPhysicsStrength", kind == "aam" ? 0.8f : kind == "agm" ? 3f : 0f));
+            v.Set("RotSpeed", Num(controller, "RotSpeed", kind == "aam" ? 180f : 15f));
+            v.Set("FlyStraight", Num(controller, "FlyStraightTime", 0.3f));
+            v.Set("MaxLife", Num(controller, "MaxLifetime", kind == "aam" ? 12f : kind == "agm" ? 35f : 40f));
+            v.Set("ExplodeLife", Num(controller, "ExplosionLifeTime", 10f));
+            v.Set("ColliderActive", Num(controller, "ColliderActiveDistance", 8f));
+            v.Set("TrackAngle", Num(controller, kind == "aam" ? "MaxTrackingAngle" : "LockAngle", 90f));
+            v.Set("FlareEffect", Num(controller, "FlareEffect", 10f));
+            v.Set("Proximity", Num(controller, "ProximityExplodeDistance", 20f));
+            v.Set("Extension", Num(controller, "TargetVectorExtension", 1.2f));
+            v.Set("Damage", Num(controller, kind == "aam" ? "AAMDamage" : kind == "agm" ? "AGMDamage" : "BombDamage", kind == "aam" ? 1f : 320f));
+            v.Set("Splash", Num(controller, "SplashRadius", kind == "aam" ? 0f : 10f));
+            return round;
         }
 
         /// <summary>
@@ -385,6 +459,83 @@ namespace FlightWorld.FlightGraphs
                     }
                 }
             report.AppendLine($"{made} arresting cables across the runway");
+        }
+
+        /// <summary>The world's catapult: the shuttle's trigger (what a vehicle locks to and rides) and its animator. Null without a runway.</summary>
+        static Transform catapultShuttle;
+        static Animator catapultAnimator;
+
+        /// <summary>
+        /// Sacc's catapult (Prefabs/Accessories/Catapult: a 93 m stroke in under two seconds), on the long runway abeam
+        /// the apron, pointing the way the fleet is parked, a quarter of the width off the centre line on the apron's
+        /// side, with a yellow board at its start. Only its trigger's place and its animation are used: a vehicle's graph finds it by
+        /// distance (FlightGraphs.CatapultFrame), so its trigger collider is removed.
+        /// </summary>
+        static void BuildCatapult(GameObject parent, Vector3 arrival, StringBuilder report)
+        {
+            catapultShuttle = null;
+            catapultAnimator = null;
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabDir + "/Accessories/Catapult.prefab");
+            var layout = FlightWorld.CityTools.CitySceneBuilder.LoadLayout();
+            if (prefab == null || layout.runways == null || layout.runways.Length == 0) { report.AppendLine("WARNING: no catapult (prefab or runway missing)"); return; }
+            var runway = layout.runways.OrderByDescending(r => r.length).First();
+            var shift = -FlightWorld.CityTools.CitySceneBuilder.OriginOnMap(layout);
+            var a = new Vector3(runway.ax, 0f, runway.ay) + shift;
+            var b = new Vector3(runway.bx, 0f, runway.by) + shift;
+            var flat = new Vector3(arrival.x, 0f, arrival.z);
+            var start = Vector3.Distance(a, flat) <= Vector3.Distance(b, flat) ? a : b;
+            var along = ((start == a ? b : a) - start).normalized;
+            var side = Vector3.Cross(Vector3.up, along);
+            float toApron = Mathf.Sign(Vector3.Dot(flat - start, side));
+            // abeam the apron: 130 m further along than the arrival point (the rows stand 26 m and 72 m ahead of it,
+            // facing the same way), if that leaves the stroke and 300 m of runway beyond it; else 60 m in from the end
+            float abeam = Vector3.Dot(flat - start, along) + 130f;
+            float fromEnd = abeam > 30f && abeam + 93f + 300f < Vector3.Distance(a, b) ? abeam : 60f;
+            var at = start + along * fromEnd + side * (toApron * runway.width * 0.25f);
+            float ground = UnityEngine.Physics.Raycast(at + Vector3.up * 50f, Vector3.down, out var hit, 100f) ? hit.point.y : layout.landHeight;
+
+            var catapult = UnityEngine.Object.Instantiate(prefab);
+            catapult.name = "Catapult";
+            catapult.transform.SetParent(parent.transform, true);
+            catapult.transform.SetPositionAndRotation(new Vector3(at.x, ground + 0.04f, at.z), Quaternion.LookRotation(along));
+            foreach (var collider in catapult.GetComponentsInChildren<Collider>(true)) UnityEngine.Object.DestroyImmediate(collider);
+            foreach (var stub in catapult.GetComponentsInChildren<MonoBehaviour>(true).Where(IsStandIn).ToArray()) UnityEngine.Object.DestroyImmediate(stub);
+            foreach (var t in catapult.GetComponentsInChildren<Transform>(true))
+            {
+                GameObjectUtility.RemoveMonoBehavioursWithMissingScript(t.gameObject);
+                t.gameObject.layer = 0;
+                if (!t.CompareTag("Untagged")) t.gameObject.tag = "Untagged";
+            }
+            foreach (var ps in catapult.GetComponentsInChildren<ParticleSystem>(true)) { var c = ps.collision; c.colliderForce = 0f; c.enabled = false; }
+            foreach (var renderer in catapult.GetComponentsInChildren<Renderer>(true))
+            {
+                bool particles = renderer is ParticleSystemRenderer || renderer is TrailRenderer || renderer is LineRenderer;
+                renderer.sharedMaterials = renderer.sharedMaterials.Select(m => SaccMaterials.Convert(m, particles)).ToArray();
+                if (renderer is ParticleSystemRenderer psr && psr.trailMaterial != null) psr.trailMaterial = SaccMaterials.Convert(psr.trailMaterial, true);
+                if (renderer.sharedMaterials.Any(m => m != null && !SaccMaterials.Usable(m))) renderer.enabled = false;
+            }
+            catapultAnimator = catapult.GetComponentInChildren<Animator>(true);
+            catapultShuttle = catapult.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == "Trigger");
+            if (catapultAnimator == null || catapultShuttle == null)
+            {
+                report.AppendLine("WARNING: the catapult prefab has no animator or no trigger; left out");
+                UnityEngine.Object.DestroyImmediate(catapult);
+                catapultShuttle = null;
+                catapultAnimator = null;
+                return;
+            }
+            // its stroke carries a vehicle whether or not anybody is looking at the catapult itself
+            catapultAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            // a yellow board on the apron's side of its start, as the cables have
+            var marker = FleetParts.FlatMaterial("CableMarker", new Color(0.95f, 0.78f, 0.10f));
+            var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            board.name = "Catapult Marker";
+            UnityEngine.Object.DestroyImmediate(board.GetComponent<BoxCollider>());
+            board.transform.SetParent(parent.transform, true);
+            board.transform.SetPositionAndRotation(new Vector3(at.x, ground + 0.5f, at.z) + side * (toApron * (runway.width * 0.25f + 3f)), Quaternion.LookRotation(along));
+            board.transform.localScale = new Vector3(0.1f, 1.0f, 2.4f);
+            board.GetComponent<MeshRenderer>().sharedMaterial = marker;
+            report.AppendLine($"catapult on the runway at {catapult.transform.position}, heading {catapult.transform.eulerAngles.y:F0}, shuttle at {catapultShuttle.position}");
         }
 
         const string RoundDir = "Assets/Flight/Rounds";
