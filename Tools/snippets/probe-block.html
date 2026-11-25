@@ -1,0 +1,37 @@
+<html world-asset="https://block.worldspace.host/asset.world">
+<head>
+  <meta charset="utf-8">
+  <title>Floor probe</title>
+</head>
+<body>
+  <!--
+    Maps the floor of the Blockbuster world (the template of @048a74) from inside the app: once it has loaded, a ray
+    straight down from 300 m every 5 m over a square round the origin, and one log line per row of the grid
+    ("[probe] z=<z> <y or -> ..." for x = -150 ... 150). Read it with adb logcat -s Unity | grep "\[probe\]".
+  -->
+  <script>
+    window.addEventListener("bs-loaded", async () => {
+      const scene = BS.Scene.GetInstance();
+      await new Promise((r) => setTimeout(r, 15000));       // (the world's scene first)
+      const step = 5, reach = 150;
+      console.log("[probe] start: x from " + -reach + " to " + reach + " step " + step);
+      for (let z = -reach; z <= reach; z += step) {
+        const row = [];
+        for (let x = -reach; x <= reach; x += step) {
+          let text = "-";
+          try {
+            const hit = await scene.Raycast(new BS.Vector3(x, 300, z), new BS.Vector3(0, -1, 0), 600);
+            if (hit) {
+              const parts = hit.split("¶");
+              text = Number(parts[3]).toFixed(1) + (Number(parts[6]) < 0.99 ? "s" : "");
+            }
+          } catch (e) { text = "!"; }
+          row.push(text);
+        }
+        console.log("[probe] z=" + z + " " + row.join(" "));
+      }
+      console.log("[probe] done");
+    });
+  </script>
+</body>
+</html>

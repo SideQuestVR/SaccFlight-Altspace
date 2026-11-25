@@ -1,0 +1,448 @@
+{
+  "kits": {
+    "sacc-sf-1": {
+      "android": {
+        "sha": "48a4d5a69bd0fca7b90639d19a3d3e453adbdd7b",
+        "path": "file/5001952/sacc-sf-1-quest.bin",
+        "file": 5001952,
+        "bytes": 7164745
+      },
+      "windows": {
+        "sha": "74be560ddbba2681959c6ef7fdecfe0c7a91a594",
+        "path": "file/5001953/sacc-sf-1-windows.bin",
+        "file": 5001953,
+        "bytes": 8065447
+      },
+      "photo": {
+        "sha": "3865ee6c1cbee0e407fea1a0ea3a599bfb27bd24",
+        "path": "file/4991867/sacc-sf-1.jpg",
+        "file": 4991867,
+        "bytes": 164671
+      },
+      "snippet": 38,
+      "snippet_sha": "5d01c7d4fa29300a8d9b6bcfefbaf61d85d9cca1"
+    },
+    "sacc-sf-2": {
+      "android": {
+        "sha": "9bfed05bbf5b133186378e82f0af6237045cea6b",
+        "path": "file/5001954/sacc-sf-2-quest.bin",
+        "file": 5001954,
+        "bytes": 6441386
+      },
+      "windows": {
+        "sha": "a5da0f48c2223ab2755534c9fb2af5922a1f3c47",
+        "path": "file/5001955/sacc-sf-2-windows.bin",
+        "file": 5001955,
+        "bytes": 7378691
+      },
+      "photo": {
+        "sha": "8b6d38fe01c1c33b1baf38be2315f6ad56c844e1",
+        "path": "file/4991870/sacc-sf-2.jpg",
+        "file": 4991870,
+        "bytes": 155969
+      },
+      "snippet": 39,
+      "snippet_sha": "d54f9db92bbe708d95c46a4bf19352b95a12e44c"
+    },
+    "sacc-sb-1": {
+      "android": {
+        "sha": "5ab1e73a1ba65ecb33ded8d183727c05cb3ac348",
+        "path": "file/5001956/sacc-sb-1-quest.bin",
+        "file": 5001956,
+        "bytes": 4499377
+      },
+      "windows": {
+        "sha": "e8cc05afcffb921d4e1f7138232dc77bdf90f4c5",
+        "path": "file/5001957/sacc-sb-1-windows.bin",
+        "file": 5001957,
+        "bytes": 5399033
+      },
+      "photo": {
+        "sha": "4737ba5d73e193e6cf754824f4ef7a2df115e432",
+        "path": "file/4991875/sacc-sb-1.jpg",
+        "file": 4991875,
+        "bytes": 136499
+      },
+      "snippet": 40,
+      "snippet_sha": "db5263aaa25e5fb606876d5b90bbd091ae4b08a2"
+    },
+    "sacc-sx-tr3": {
+      "android": {
+        "sha": "99a4618be9c3c6260aaea95d99948420cb3b73a5",
+        "path": "file/5001958/sacc-sx-tr3-quest.bin",
+        "file": 5001958,
+        "bytes": 6227671
+      },
+      "windows": {
+        "sha": "727e0974fc55617c00213123e254146a34b3d466",
+        "path": "file/5001959/sacc-sx-tr3-windows.bin",
+        "file": 5001959,
+        "bytes": 7103910
+      },
+      "photo": {
+        "sha": "c020bb76370d55b81ceaba527d2747b3858fa168",
+        "path": "file/4991878/sacc-sx-tr3.jpg",
+        "file": 4991878,
+        "bytes": 158155
+      },
+      "snippet": 41,
+      "snippet_sha": "8305bac6099188ed33b1de4b44927fc853b2c81e"
+    },
+    "sacc-wasp-wx3": {
+      "android": {
+        "sha": "64397d6ca95113d1a0f6b6822263e8b4f5d93e5a",
+        "path": "file/5001960/sacc-wasp-wx3-quest.bin",
+        "file": 5001960,
+        "bytes": 5303697
+      },
+      "windows": {
+        "sha": "375f416771c111b0b12f885e79d90ac2571311b9",
+        "path": "file/5001961/sacc-wasp-wx3-windows.bin",
+        "file": 5001961,
+        "bytes": 6214045
+      },
+      "photo": {
+        "sha": "c8553b640ba009024c0fdce3351e37864c00de3d",
+        "path": "file/4991881/sacc-wasp-wx3.jpg",
+        "file": 4991881,
+        "bytes": 173478
+      },
+      "snippet": 42,
+      "snippet_sha": "43a5b9fa8a3d16d3062187cd6ba676f62fe4b649"
+    },
+    "sacc-stunt-plane": {
+      "android": {
+        "sha": "989fb4524002253dc4fb57685d9fa6d3d0de8899",
+        "path": "file/5001962/sacc-stunt-plane-quest.bin",
+        "file": 5001962,
+        "bytes": 4315955
+      },
+      "windows": {
+        "sha": "535806acba8a22177d600117cb0f1bff5d785051",
+        "path": "file/5001963/sacc-stunt-plane-windows.bin",
+        "file": 5001963,
+        "bytes": 5203156
+      },
+      "photo": {
+        "sha": "35bd4117739b97569c38600b7e0792ab30203654",
+        "path": "file/4991884/sacc-stunt-plane.jpg",
+        "file": 4991884,
+        "bytes": 156198
+      },
+      "snippet": 43,
+      "snippet_sha": "a5268ebc91af934eb36792dbef52ac3ff8b6dd57"
+    },
+    "sacc-grvr-1": {
+      "android": {
+        "sha": "bb44c7a78ba9ab82635b80bf84167d8df1eb236c",
+        "path": "file/5001964/sacc-grvr-1-quest.bin",
+        "file": 5001964,
+        "bytes": 4851749
+      },
+      "windows": {
+        "sha": "a2a143aae381a5c4e66dbbadfa83ebd47aacd416",
+        "path": "file/5001965/sacc-grvr-1-windows.bin",
+        "file": 5001965,
+        "bytes": 5733994
+      },
+      "photo": {
+        "sha": "24a3be9be7a4ae4a5f89a66ae3ab24c739a5fb05",
+        "path": "file/4991887/sacc-grvr-1.jpg",
+        "file": 4991887,
+        "bytes": 163116
+      },
+      "snippet": 44,
+      "snippet_sha": "f1e35f59932209e641984e8f4592f8ca1b1250c8"
+    },
+    "sacc-sc-1": {
+      "android": {
+        "sha": "0ae54f1e1ca8b47b4f6149fbb338aad991bdc5ae",
+        "path": "file/5001966/sacc-sc-1-quest.bin",
+        "file": 5001966,
+        "bytes": 5123001
+      },
+      "windows": {
+        "sha": "9c7260ec72c71c22a397ddde105a22c39e5570a8",
+        "path": "file/5001967/sacc-sc-1-windows.bin",
+        "file": 5001967,
+        "bytes": 6025938
+      },
+      "photo": {
+        "sha": "f25e6916887ff5ddfc44b3ad0053ee6f9b2f7e25",
+        "path": "file/4991890/sacc-sc-1.jpg",
+        "file": 4991890,
+        "bytes": 158842
+      },
+      "snippet": 45,
+      "snippet_sha": "11696a06814c6ae3427cd6ac91d1a71f98d0e1bb"
+    },
+    "sacc-a320": {
+      "android": {
+        "sha": "2bc43d109a1d1875fcdda67d907fd2ba72912a11",
+        "path": "file/5001970/sacc-a320-quest.bin",
+        "file": 5001970,
+        "bytes": 22690264
+      },
+      "windows": {
+        "sha": "64be49adef632c753a7a8a8fe0f336ce10f3ebc7",
+        "path": "file/5001979/sacc-a320-windows.bin",
+        "file": 5001979,
+        "bytes": 21600003
+      },
+      "photo": {
+        "sha": "b9bf00581d23e32f66ca42527beb5dc8140530d0",
+        "path": "file/4991893/sacc-a320.jpg",
+        "file": 4991893,
+        "bytes": 166119
+      },
+      "snippet": 46,
+      "snippet_sha": "9927410898367574801aec23632cdf14be9c4049"
+    },
+    "sacc-sh-1": {
+      "android": {
+        "sha": "15037ee65b3054af3d8aa0d6ea45430776888d49",
+        "path": "file/5001981/sacc-sh-1-quest.bin",
+        "file": 5001981,
+        "bytes": 6033193
+      },
+      "windows": {
+        "sha": "cf35116b8bbaa855a771d3c54157e903b24b9851",
+        "path": "file/5001982/sacc-sh-1-windows.bin",
+        "file": 5001982,
+        "bytes": 6918837
+      },
+      "photo": {
+        "sha": "c690555158ae7bc9f8874593898e8817f25c528f",
+        "path": "file/4991896/sacc-sh-1.jpg",
+        "file": 4991896,
+        "bytes": 161777
+      },
+      "snippet": 47,
+      "snippet_sha": "ff1c7d7cf90a2ad931634931a2f2230b76472370"
+    },
+    "sacc-sh-2": {
+      "android": {
+        "sha": "a427cf35842601ed2946b2c8da4659c9120b99be",
+        "path": "file/5001983/sacc-sh-2-quest.bin",
+        "file": 5001983,
+        "bytes": 6636583
+      },
+      "windows": {
+        "sha": "2b789dd06195352bb4ece8ed9b5bb18d124a56da",
+        "path": "file/5001985/sacc-sh-2-windows.bin",
+        "file": 5001985,
+        "bytes": 7538619
+      },
+      "photo": {
+        "sha": "341657d7bad25df6ae6f91b55b5ac4d6d4d94bd6",
+        "path": "file/4991899/sacc-sh-2.jpg",
+        "file": 4991899,
+        "bytes": 164114
+      },
+      "snippet": 48,
+      "snippet_sha": "ebb2e5ee156d02d1f76a71c942649c8a49ad4edf"
+    },
+    "sacc-sh-3": {
+      "android": {
+        "sha": "92fcb07c4e6f2559d0c5dc655acdb4b641656bc0",
+        "path": "file/5001986/sacc-sh-3-quest.bin",
+        "file": 5001986,
+        "bytes": 5952201
+      },
+      "windows": {
+        "sha": "84bdd3492be8f77541487cf0e306b544cfb1b292",
+        "path": "file/5001987/sacc-sh-3-windows.bin",
+        "file": 5001987,
+        "bytes": 6843052
+      },
+      "photo": {
+        "sha": "8d50125c529ac26c31d9cba8a536d5a330713d43",
+        "path": "file/4991902/sacc-sh-3.jpg",
+        "file": 4991902,
+        "bytes": 162682
+      },
+      "snippet": 49,
+      "snippet_sha": "56769984f5c648900df9566778fce6f4440e47c6"
+    },
+    "sacc-sd-1": {
+      "android": {
+        "sha": "b172cb76e70a9a7768807a859ed8840c59c514df",
+        "path": "file/5001988/sacc-sd-1-quest.bin",
+        "file": 5001988,
+        "bytes": 4209557
+      },
+      "windows": {
+        "sha": "c2ff374611f7f84d49c2db465bda6177abcfa798",
+        "path": "file/5001990/sacc-sd-1-windows.bin",
+        "file": 5001990,
+        "bytes": 5074691
+      },
+      "photo": {
+        "sha": "f808e37ace98f52be1c455ed5f7ed51b03435db3",
+        "path": "file/4991905/sacc-sd-1.jpg",
+        "file": 4991905,
+        "bytes": 147232
+      },
+      "snippet": 50,
+      "snippet_sha": "b24450fdf7b2e6452f823757f67c40843ccd8886"
+    },
+    "sacc-balloon": {
+      "android": {
+        "sha": "d13dcdb982256a4e069aeb9069e1424b8a9da2d0",
+        "path": "file/5001992/sacc-balloon-quest.bin",
+        "file": 5001992,
+        "bytes": 4282252
+      },
+      "windows": {
+        "sha": "af1abfb3b257d8cfde0aa94bd4d93a08c345ea1d",
+        "path": "file/5001993/sacc-balloon-windows.bin",
+        "file": 5001993,
+        "bytes": 5023719
+      },
+      "photo": {
+        "sha": "c7947d3b89b69607f30b4d6baf6954b6398a3799",
+        "path": "file/4991908/sacc-balloon.jpg",
+        "file": 4991908,
+        "bytes": 158678
+      },
+      "snippet": 51,
+      "snippet_sha": "5bd0bf780f9dca6409d418ea717828a62f6ce202"
+    },
+    "sacc-ss-1": {
+      "android": {
+        "sha": "c0a2545640fa9ed68153715659f8a88734d6580d",
+        "path": "file/5001995/sacc-ss-1-quest.bin",
+        "file": 5001995,
+        "bytes": 4873766
+      },
+      "windows": {
+        "sha": "7913259975f581279f22983acfe272b171912a13",
+        "path": "file/5001996/sacc-ss-1-windows.bin",
+        "file": 5001996,
+        "bytes": 5765131
+      },
+      "photo": {
+        "sha": "ccb0cd4a16b8d06fef4747154e526ee71bc79092",
+        "path": "file/4991911/sacc-ss-1.jpg",
+        "file": 4991911,
+        "bytes": 80629
+      },
+      "snippet": 52,
+      "snippet_sha": "1812fa025bafc3e9e01f43ed33a4968080515544"
+    },
+    "sacc-baron": {
+      "android": {
+        "sha": "0efc487c6639a3534be829977acba2dce630313c",
+        "path": "file/5001997/sacc-baron-quest.bin",
+        "file": 5001997,
+        "bytes": 3133938
+      },
+      "windows": {
+        "sha": "070e6704c6fc25e84cb297917148b2fb3c99a792",
+        "path": "file/5001998/sacc-baron-windows.bin",
+        "file": 5001998,
+        "bytes": 4009172
+      },
+      "photo": {
+        "sha": "0a27be6f06a57093bdc899ed742b0bb554be4938",
+        "path": "file/4991914/sacc-baron.jpg",
+        "file": 4991914,
+        "bytes": 148847
+      },
+      "snippet": 53,
+      "snippet_sha": "c0928259f8e35eb82ac751f91a284116815cfb43"
+    },
+    "sacc-iccarus": {
+      "android": {
+        "sha": "384c3ffd817cfbff2f1ab5ca83a8524c49ec3545",
+        "path": "file/5001999/sacc-iccarus-quest.bin",
+        "file": 5001999,
+        "bytes": 3696383
+      },
+      "windows": {
+        "sha": "5cf52c2bb1b94a7dc306bd6d9160cfffdcb7ff48",
+        "path": "file/5002000/sacc-iccarus-windows.bin",
+        "file": 5002000,
+        "bytes": 4586085
+      },
+      "photo": {
+        "sha": "dcc322c9e230025ff20921979dc9a9ee4ff6944a",
+        "path": "file/4991917/sacc-iccarus.jpg",
+        "file": 4991917,
+        "bytes": 140503
+      },
+      "snippet": 54,
+      "snippet_sha": "b47f614972ae61727f3fca195da70080b8698926"
+    },
+    "sacc-shoreline": {
+      "android": {
+        "sha": "35580ff3efe2378ea365fea437b57d250591a232",
+        "path": "file/5002004/sacc-shoreline-quest.bin",
+        "file": 5002004,
+        "bytes": 4304796
+      },
+      "windows": {
+        "sha": "76b489196493be025a9a7098c77d5ff7b19a8e14",
+        "path": "file/5002005/sacc-shoreline-windows.bin",
+        "file": 5002005,
+        "bytes": 5193523
+      },
+      "photo": {
+        "sha": "3f755463ee301923a549695cd3ce920a5b2fceef",
+        "path": "file/4991920/sacc-shoreline.jpg",
+        "file": 4991920,
+        "bytes": 135395
+      },
+      "snippet": 55,
+      "snippet_sha": "12aacebd8d29142d6984e7033643001c3de43ab7"
+    },
+    "sacc-thunder": {
+      "android": {
+        "sha": "0c986731a66eb2251b128c1858d9ff73b9641be7",
+        "path": "file/5002006/sacc-thunder-quest.bin",
+        "file": 5002006,
+        "bytes": 3382246
+      },
+      "windows": {
+        "sha": "aa9a01cd29185ee44ddaf861a3c70f5b22900944",
+        "path": "file/5002007/sacc-thunder-windows.bin",
+        "file": 5002007,
+        "bytes": 4275749
+      },
+      "photo": {
+        "sha": "4f5135e9fd03a64e3cc7dc3bb8efcaee8d262ac7",
+        "path": "file/4991923/sacc-thunder.jpg",
+        "file": 4991923,
+        "bytes": 147793
+      },
+      "snippet": 56,
+      "snippet_sha": "f6348033fafc36f5a9816522f8b7bd091c7fb86c"
+    },
+    "sacc-tank": {
+      "android": {
+        "sha": "70257d06d242eed3976879df4a970389f6f28893",
+        "path": "file/5002008/sacc-tank-quest.bin",
+        "file": 5002008,
+        "bytes": 2929521
+      },
+      "windows": {
+        "sha": "1e2fbbbf839e63cdfee46bf8863cc2e068559052",
+        "path": "file/5002009/sacc-tank-windows.bin",
+        "file": 5002009,
+        "bytes": 3851728
+      },
+      "photo": {
+        "sha": "05c1da38a34b3ee3647b2289096941a47e769234",
+        "path": "file/4991926/sacc-tank.jpg",
+        "file": 4991926,
+        "bytes": 157309
+      },
+      "snippet": 57,
+      "snippet_sha": "c760c5904b6cb755fbd8fe9d2c597508d0072e2a"
+    }
+  },
+  "loader": {
+    "sha": "3052f6856d7da8928caf6d7b2acfaea33743282c",
+    "url": "https://pilots.worldspace.host/vehicle-kits.js"
+  }
+}

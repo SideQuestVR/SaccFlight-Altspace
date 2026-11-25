@@ -1365,6 +1365,38 @@ namespace FlightWorld.FlightGraphs
                 // the gunner seat the local player is in (GunnerGraphs.cs): its turret follows the hand
                 g.If(g.ObjVar("HasGunner", typeof(bool)), () => Trigger(g, g.ObjVar("Gunner", GO), "fw_gun"));
             });
+            // ---- a vehicle kit's watch: its snippet's settings (vehicle-kits.js) ----
+            // advanced-controls="true" starts Sacc's VR controls on for every player; advanced-button="false" hides the
+            // switch beside the sign. The page is asked once this graph runs (a message sent earlier would be lost),
+            // and answers 1 or 0 (-1: no loader on the page). This world's own watch has no KitName and asks nothing.
+            var kit = g.ObjVar("KitName", typeof(string));
+            Val Ask(string what) => g.Call(typeof(string), "Concat", new[] { typeof(string), typeof(string), typeof(string) }, null,
+                "fw_kit", what, g.ObjVar("KitName", typeof(string)));
+            g.On(new Start(), _ => g.If(g.Not(g.Same(kit, "")), () =>
+            {
+                foreach (var what in new[] { "advanced", "button" })
+                    g.PlatformDo("InjectJS",
+                        ("BullSchript", g.Call(typeof(string), "Concat", new[] { typeof(string), typeof(string), typeof(string) }, null,
+                            "(window.__vehicleKitsSetting ? window.__vehicleKitsSetting(\"", g.ObjVar("KitName", typeof(string)), "\", \"" + what + "\") : -1)")),
+                        ("Return ID", Ask(what)));
+            }));
+            g.On(g.Platform("OnJsReturnValue", ("Return ID", Ask("advanced"))), e =>
+                g.If(g.Greater(g.PlatformValue("ParseStringInvariant", "float", typeof(float), ("string", g.EventOut(e, "Data", typeof(string)))), 0.5f), () =>
+                {
+                    g.SetObjVar("AdvancedControls", true);
+                    g.Set(typeof(TMPro.TMP_Text), "text", g.ObjVar("AdvancedLabel", typeof(TMPro.TMP_Text)), FleetParts.AdvancedOn);
+                    foreach (var hand in new[] { "LeftHand", "RightHand" })
+                        g.PlatformDo("AttachToPlayer", ("Object", g.Get(TF, "gameObject", g.ObjVar(hand, TF))));
+                }));
+            g.On(g.Platform("OnJsReturnValue", ("Return ID", Ask("button"))), e =>
+            {
+                var answer = g.Keep(g.PlatformValue("ParseStringInvariant", "float", typeof(float), ("string", g.EventOut(e, "Data", typeof(string)))));
+                g.If(g.And(g.Greater(answer, -0.5f), g.Less(answer, 0.5f)), () =>
+                {
+                    g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("AdvancedButton", GO), false);
+                    g.Do(GO, "SetActive", new[] { typeof(bool) }, g.ObjVar("AdvancedLabelObject", GO), false);
+                });
+            });
             g.On(g.Platform("OnJsReturnValue", ("Return ID", "fw_doze")), e =>
                 g.SetObjVar("DozeOn", g.Greater(g.PlatformValue("ParseStringInvariant", "float", typeof(float),
                     ("string", g.EventOut(e, "Data", typeof(string)))), 0.5f)));

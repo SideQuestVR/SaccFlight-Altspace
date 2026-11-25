@@ -1,0 +1,37 @@
+<html world-asset>
+<head>
+  <meta charset="utf-8">
+  <title>Vehicle kit test</title>
+</head>
+<body>
+  <!--
+    Test page for the sacc-* vehicle snippets in the real app: this world's city as the ground, and the snippets
+    added the way any world's page has them, through the published loader (vehicle-kits.js) and the CDN's bundles.
+    Which kits: ?kits=sacc-sf-1,sacc-iccarus (all of them when absent). Places: SPOTS below, free flat ground near the
+    arrival point (FlightWorld/Snippets/Test/Find Free Spots). Uploaded as an extra file of the world.
+  -->
+  <script>
+    (function () {
+      var SPOTS = /*SPOTS*/[]/*END SPOTS*/;
+      var ALL = ["sacc-sf-1", "sacc-sf-2", "sacc-sb-1", "sacc-sx-tr3", "sacc-wasp-wx3", "sacc-stunt-plane", "sacc-grvr-1",
+                 "sacc-sc-1", "sacc-a320", "sacc-sh-1", "sacc-sh-2", "sacc-sh-3", "sacc-sd-1", "sacc-balloon", "sacc-baron",
+                 "sacc-iccarus", "sacc-shoreline", "sacc-thunder", "sacc-tank"];
+      var asked = (new URLSearchParams(location.search).get("kits") || "").split(",").filter(function (s) { return ALL.indexOf(s) >= 0; });
+      var kits = asked.length ? asked : ALL;
+      kits.forEach(function (slug, i) {
+        var spot = SPOTS[ALL.indexOf(slug)];
+        if (!spot) return;
+        var el = document.createElement("bs-snippet");
+        el.setAttribute("name", slug);
+        el.setAttribute("title", slug);
+        el.setAttribute("single", "true");
+        el.setAttribute("script", "https://pilots.worldspace.host/vehicle-kits.js");
+        el.setAttribute("position", spot[0] + " " + spot[1] + " " + spot[2]);
+        el.setAttribute("rotation", "0 " + spot[3] + " 0");
+        document.body.appendChild(el);
+        console.log("[kittest] added " + slug + " at " + spot.join(" "));
+      });
+    })();
+  </script>
+</body>
+</html>

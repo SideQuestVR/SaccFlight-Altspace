@@ -83,3 +83,44 @@ hand: they are **generated from C#** in `Assets/Flight/Editor/`, which reads lik
 3. *FlightWorld > Flight > Build Fleet In Scene* and *Build Ground Vehicles In Scene* regenerate the graphs and
    rebuild every vehicle in `Assets/Scenes/SampleScene.unity`.
 4. Build and upload with the Creator SDK Builder.
+
+## The vehicles as snippets
+
+Every vehicle is also published as a snippet, so that anybody can put one in a world of their own: `sacc-sf-1`,
+`sacc-sf-2`, `sacc-sb-1`, `sacc-sx-tr3`, `sacc-wasp-wx3`, `sacc-stunt-plane`, `sacc-grvr-1`, `sacc-sc-1`, `sacc-a320`,
+`sacc-sh-1`, `sacc-sh-2`, `sacc-sh-3`, `sacc-sd-1`, `sacc-balloon`, `sacc-ss-1`, `sacc-baron`, `sacc-iccarus`,
+`sacc-shoreline`, `sacc-thunder` and `sacc-tank`. In Unity: add a *BS > Snippet* component and type the slug.
+
+A snippet loads a **kit**: one prefab holding the vehicle with a clock, weapons object, reset sign, instruction panel
+and respawn point of its own, so it needs nothing else from this world. Kits are built from the vehicles in the scene.
+
+| Step | Menu or command | What it does |
+|---|---|---|
+| 1 | *FlightWorld > Snippets > Build Kit Prefabs* | `Assets/Flight/Kits/<slug>.prefab` from the built scene (`SnippetKits.cs`) |
+| 2 | *FlightWorld > Snippets > Build Kit Bundles* | A Quest and a Windows bundle per kit in `Library/FlightWorld/kits/`, each run through the app's own kit check |
+| 3 | Play, then *FlightWorld > Snippets > Take Photos* | A picture of each vehicle, `Library/FlightWorld/kits/photos/` |
+| 4 | `Tools/kit_tests.sh` | Loads each kit through a `<bs-snippet>` in Play mode and drives it (`Assets/Editor/KitPlayTest.cs`) |
+| 5 | `python Tools/snippets/make_texts.py` | Titles and descriptions, `Tools/snippets/kits.json` |
+| 6 | *FlightWorld > Snippets > Upload > 1, 2, 3* | Bundles and photos to the CDN; `vehicle-kits.js` to this world's address; the snippets themselves (`SnippetUpload.cs`) |
+
+`Assets/WebRoot/vehicle-kits.js` is the snippets' script: it makes an object where each snippet says, and loads the
+kit's bundle into it (it also sends the keyboard to the vehicles' graphs). It is served from this world's address, so
+it is uploaded with step 6 and not by the Builder. `Tools/snippets/manifest.json` records what was uploaded where.
+
+Settings on each snippet besides `position` and `rotation`: `snap-to-ground` (default on, not the boat: the vehicle is
+set down on the first floor below its position once the world has loaded it), `advanced-controls` (Sacc's VR controls on
+from the start) and `advanced-button` (the switch for them beside the sign); the last two for the aircraft and the boat.
+
+Tests: `Tools/kit_controls_tests.sh [slug ...]` loads each snippet into an empty world whose page holds only that snippet,
+clicks the driver's seat, and works the vehicle with keys through the page and with VR sticks and triggers
+(`Assets/Editor/KitControlsTest.cs`; touch `Library/FlightWorld/kit_live.txt` to use the published copies). In the app:
+`https://pilots.worldspace.host/kittest.html?qa=<anything>[&kits=slug,slug]` puts the snippets on the city's ground
+(*FlightWorld > Snippets > Test > Write / Upload Test Page*); read the headset's log for `[BundleCheck]`, `[BSKitItem]`,
+`[SyncedObjects] Bound` and `fell below`.
+
+Two things the kit builder does that a world's own vehicles do not need: the vehicle's body is saved frozen (a snippet can
+load before the world's floor, and a free body fell through the world), and every canvas gets a switched-off box collider
+(the kit loader otherwise gives each one a solid box, which became part of the vehicle's physics).
+
+Limits: one of each vehicle per world (their network ids are fixed), no catapult, and vehicles from different snippets
+cannot damage or lock on to each other.

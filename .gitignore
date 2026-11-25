@@ -171,3 +171,10 @@ __pycache__/
 # Local machine config
 /.mcp.json
 /.vscode/
+
+# Vehicle kits: built from the scene (FlightWorld > Snippets > Build Kit Prefabs), 190 MB of prefabs
+/Assets/Flight/Kits/
+/Assets/Flight/Kits.meta
+
+# Python caches
+__pycache__/

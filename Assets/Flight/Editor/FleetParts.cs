@@ -281,6 +281,10 @@ namespace FlightWorld.FlightGraphs
             variables.declarations.Set("AdvancedControls", false);      // the board's button: Sacc's VR controls, for this player
             variables.declarations.Set("Gunner", watch);                // the gunner seat the local player is in (only while HasGunner)
             variables.declarations.Set("HasGunner", false);
+            // A vehicle kit's own watch (SnippetKits.cs) names its snippet and asks the page for that snippet's
+            // advanced-controls settings when it starts; this world's watch has no snippet and asks nothing.
+            variables.declarations.Set("KitName", "");
+            if (!variables.declarations.IsDefined("AdvancedLabelObject")) variables.declarations.Set("AdvancedLabelObject", null);
             if (!variables.declarations.IsDefined("AdvancedButton")) variables.declarations.Set("AdvancedButton", watch);
             if (!variables.declarations.IsDefined("AdvancedLabel")) variables.declarations.Set("AdvancedLabel", null);
             // Where the local player's hands are. The app attaches an object to a hand bone by following the physics
